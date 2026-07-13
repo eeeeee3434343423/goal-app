@@ -167,6 +167,191 @@ No implementation code for this addendum will be changed until this plan is appr
 
 ---
 
+# Plan Addendum: Daily Repeatable Goals and Goal Notes
+
+## Refine
+Add a separate Daily Goals section for repeatable habits/routines that do not count as active goals or standalone small goals, and add goal notes with Minimum / Standard / Max variants for daily execution.
+
+## Files to Change
+1. `goal-app.html`
+   - Keep the existing static single-file app and Firebase/localStorage save behavior.
+   - Add a new goal type:
+     - `goalType: "daily"`
+   - Add a new top-level section:
+     - `Daily repeatable goals`
+   - Daily goals do not count toward:
+     - active-goal focus limit
+     - small-goal daily limit
+   - Add a header button:
+     - `Daily goal`
+   - Add daily-goal fields:
+     - `title`
+     - `description`
+     - `dailyMinimum`
+     - `dailyStandard`
+     - `dailyMax`
+     - `notes`
+     - `dailyCompletions: Array<{ id: string, date: "YYYY-MM-DD", level: "minimum" | "standard" | "max", note: string, completedAt: number }>`
+   - Render daily goals as cards with:
+     - title
+     - notes/about
+     - Minimum / Standard / Max descriptions
+     - buttons: `Minimum`, `Standard`, `Max`, `Edit`
+   - Completing a daily goal records a daily completion without moving the daily goal out of the section.
+   - Victories / wins should clearly distinguish daily completions from one-time wins:
+     - Example label: `Daily win`
+     - Example title: `Complete Morning Routine - Standard`
+   - Preserve existing Active, Small, Future, Demo, Firebase, and export/import behavior.
+
+2. `tests/goal-app.test.js`
+   - Add coverage for normalizing `goalType: "daily"`.
+   - Add coverage that daily goals render in their own section.
+   - Add coverage that daily goals do not count toward active/small focus limits.
+   - Add coverage for recording Minimum / Standard / Max daily completions.
+   - Add coverage that daily completions render in Victories with a daily-specific label.
+   - Add coverage that notes and Minimum / Standard / Max fields survive editing/import/export.
+
+3. `LEARNINGS.md`
+   - Append any implementation lesson around separating repeatable daily completions from one-time goal wins.
+
+## Interface / Function Signatures
+In `goal-app.html`:
+
+1. `function normalizeGoalType(g)`
+   - Returns `"active"`, `"small"`, `"future"`, or `"daily"`.
+
+2. `function normalizeDailyCompletions(items)`
+   - Returns normalized daily completion records.
+
+3. `function dailyCardHtml(g)`
+   - Renders a repeatable daily goal card.
+
+4. `function completeDailyGoal(id, level)`
+   - Adds a daily completion for today's date and selected level.
+   - Does not set `achievedAt` and does not remove the daily goal from its section.
+
+5. `function dailyVictoryHtml(completion, goal)`
+   - Renders daily completions inside the Victories / wins section with a distinct daily label.
+
+6. Existing `openForm(id, mode)` / `setFormMode(mode)`
+   - Supports `mode: "daily"` with only daily fields visible.
+
+## Test Cases
+In `tests/goal-app.test.js`:
+
+1. Daily goals normalize with empty `dailyCompletions`.
+2. Daily goals render in `Daily repeatable goals`, not Active or Small.
+3. Completing a daily goal at `minimum`, `standard`, and `max` records completions.
+4. Daily completion appears in Victories as `Daily win`.
+5. Daily goal remains repeatable after completion.
+6. Daily notes and Minimum / Standard / Max fields persist through save/import/export.
+7. Existing Firebase/localStorage, focus-limit, demo, timer, and victory tests still pass.
+
+## Verification Commands
+Run after implementation:
+
+1. `node --test tests/goal-app.test.js`
+2. `node --check tests/goal-app.test.js`
+3. Extract and parse the `goal-app.html` browser script with Node.
+
+## Stop Point
+No implementation code for this addendum will be changed until this plan is approved.
+
+---
+
+# Plan Addendum: Focus Limits and Daily Order
+
+## Refine
+Prevent goal hopping by limiting what appears in today's focus list and giving users an explicit order for what to do first.
+
+## Default Behavior
+Use these defaults unless the user says otherwise:
+- Active goals shown today: max `5`
+- Standalone small goals shown today: max `20`
+- Overflow is not deleted; it is moved into an overflow/next-up section and can be pushed to tomorrow or manually promoted.
+
+## Files to Change
+1. `goal-app.html`
+   - Keep the existing static single-file app and Firebase/localStorage save behavior.
+   - Extend normalized goal data with ordering/scheduling fields:
+     - `focusOrder: number`
+     - `deferredUntil: "YYYY-MM-DD" | ""`
+   - Add focus helpers:
+     - Active goals are sorted by Major Definite Purpose first, then `focusOrder`, then created date.
+     - Small goals are sorted by target date, then `focusOrder`, then created date.
+   - Render active goals as:
+     - `Today's active focus` with up to 5 active goals.
+     - `Next active goals` for active overflow/deferred goals.
+   - Render standalone small goals as:
+     - `Today's small goals - 1 day or less` with up to 20 due/available small goals.
+     - `Next small goals` for overflow/deferred small goals.
+   - Add controls on active and standalone small goal cards:
+     - `Up`
+     - `Down`
+     - `Tomorrow`
+     - `Today`
+   - Add functions that update focus order and defer dates without losing existing data.
+   - Preserve Future Ideas and Victories sections.
+   - Preserve export/import compatibility.
+
+2. `tests/goal-app.test.js`
+   - Add coverage for normalization of `focusOrder` and `deferredUntil`.
+   - Add coverage that only the first 5 active goals render in today's active focus.
+   - Add coverage that only the first 20 small goals render in today's small goals.
+   - Add coverage that overflow goals render in next-up sections.
+   - Add coverage for `deferGoalToTomorrow(id)` and `moveGoalToToday(id)`.
+   - Add coverage for moving goals up/down in the order.
+   - Keep all existing tests passing.
+
+3. `LEARNINGS.md`
+   - Append any implementation lesson about focus limits, priority order, and avoiding hidden data loss.
+
+## Interface / Function Signatures
+In `goal-app.html`:
+
+1. `function normalize(g)`
+   - Adds `focusOrder` and `deferredUntil` defaults.
+
+2. `function isAvailableToday(g)`
+   - Returns true when `deferredUntil` is empty or is today/past.
+
+3. `function splitFocusLists(items, limit)`
+   - Returns `{ today: [], next: [] }`.
+
+4. `function reorderGoal(id, direction)`
+   - Moves a goal up/down among goals of the same type.
+
+5. `function deferGoalToTomorrow(id)`
+   - Sets `deferredUntil` to tomorrow.
+
+6. `function moveGoalToToday(id)`
+   - Clears `deferredUntil`.
+
+7. `function focusControlsHtml(g)`
+   - Renders `Up`, `Down`, `Tomorrow`, and `Today` controls.
+
+## Test Cases
+In `tests/goal-app.test.js`:
+
+1. More than 5 active goals are split into 5 today and the rest next.
+2. More than 20 small goals are split into 20 today and the rest next.
+3. Deferred goals do not appear in today's focus.
+4. `moveGoalToToday()` brings a deferred goal back into today's list.
+5. `reorderGoal()` changes displayed order and persists through save.
+6. Existing Firebase/localStorage, demo, timer, and victory tests still pass.
+
+## Verification Commands
+Run after implementation:
+
+1. `node --test tests/goal-app.test.js`
+2. `node --check tests/goal-app.test.js`
+3. Extract and parse the `goal-app.html` browser script with Node.
+
+## Stop Point
+No implementation code for this addendum will be changed until this plan is approved.
+
+---
+
 # Plan Addendum: In-App Demo Success Example
 
 ## Refine

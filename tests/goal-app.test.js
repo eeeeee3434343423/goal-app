@@ -45,6 +45,7 @@ function createHarness(seedGoals = []) {
     "saveStatus",
     "activeList",
     "smallList",
+    "dailyList",
     "futureList",
     "doneWrap",
     "overlay",
@@ -57,6 +58,7 @@ function createHarness(seedGoals = []) {
     "formHint",
     "modeTabs",
     "tabActive",
+    "tabDaily",
     "tabSmall",
     "tabFuture",
     "titleHelp",
@@ -64,6 +66,11 @@ function createHarness(seedGoals = []) {
     "fFutureMonth",
     "fDescription",
     "smallFields",
+    "dailyFields",
+    "fDailyNotes",
+    "fDailyMinimum",
+    "fDailyStandard",
+    "fDailyMax",
     "fTargetDate",
     "fSmallAbout",
     "activeFields",
@@ -197,6 +204,26 @@ test("normalization accepts standalone one-day small goals", () => {
   assert.equal(goal.targetDate, "2026-07-12");
   assert.equal(goal.futureMonth, "");
   assert.deepEqual(JSON.parse(JSON.stringify(goal.smallGoals)), []);
+});
+
+test("daily goals normalize with editable levels and empty completions", () => {
+  const { context } = createHarness([]);
+  const goal = context.normalize({
+    id: "daily",
+    title: "Complete Morning Routine",
+    goalType: "daily",
+    notes: "Anchor the day.",
+    dailyMinimum: "Water",
+    dailyStandard: "Water and cleanup",
+    dailyMax: "Full routine",
+  });
+
+  assert.equal(goal.goalType, "daily");
+  assert.equal(goal.notes, "Anchor the day.");
+  assert.equal(goal.dailyMinimum, "Water");
+  assert.equal(goal.dailyStandard, "Water and cleanup");
+  assert.equal(goal.dailyMax, "Full routine");
+  assert.deepEqual(JSON.parse(JSON.stringify(goal.dailyCompletions)), []);
 });
 
 test("progress counts milestone goals and small goals together", () => {
@@ -394,12 +421,108 @@ test("render places active, standalone small, future, and won goals in separate 
 
   assert.match(elements.activeList.innerHTML, /Active goal/);
   assert.doesNotMatch(elements.activeList.innerHTML, /One day task/);
-  assert.match(elements.smallList.innerHTML, /Small goals - 1 day or less - 1/);
+  assert.match(elements.smallList.innerHTML, /Today's small goals - 1 day or less - 1/);
   assert.match(elements.smallList.innerHTML, /One day task/);
   assert.doesNotMatch(elements.smallList.innerHTML, /Active goal/);
   assert.match(elements.futureList.innerHTML, /Future goal/);
   assert.doesNotMatch(elements.futureList.innerHTML, /One day task/);
   assert.match(elements.doneWrap.innerHTML, /Won goal/);
+});
+
+test("daily goals render in daily section and not active or small", () => {
+  const { elements } = createHarness([
+    { id: "daily", title: "Complete Morning Routine", goalType: "daily", dailyMinimum: "Water", dailyStandard: "Routine", dailyMax: "Routine plus run" },
+    { id: "active", title: "Active goal", goalType: "active" },
+    { id: "small", title: "One day task", goalType: "small" },
+  ]);
+
+  assert.match(elements.dailyList.innerHTML, /Daily repeatable goals - 1/);
+  assert.match(elements.dailyList.innerHTML, /Complete Morning Routine/);
+  assert.doesNotMatch(elements.activeList.innerHTML, /Complete Morning Routine/);
+  assert.doesNotMatch(elements.smallList.innerHTML, /Complete Morning Routine/);
+});
+
+test("focus limits split active and standalone small goals into today and next sections", () => {
+  const active = Array.from({ length: 7 }, (_, i) => ({ id: `a${i}`, title: `Active ${i}`, goalType: "active", focusOrder: i + 1, createdAt: i + 1 }));
+  const small = Array.from({ length: 22 }, (_, i) => ({ id: `s${i}`, title: `Small ${i}`, goalType: "small", focusOrder: i + 1, createdAt: i + 1, targetDate: "2026-07-13" }));
+  const { elements } = createHarness([...active, ...small, { id: "daily", title: "Daily", goalType: "daily" }]);
+
+  assert.match(elements.activeList.innerHTML, /Today's active focus - 5/);
+  assert.match(elements.activeList.innerHTML, /Next active goals - 2/);
+  assert.match(elements.smallList.innerHTML, /Today's small goals - 1 day or less - 20/);
+  assert.match(elements.smallList.innerHTML, /Next small goals - 2/);
+  assert.match(elements.dailyList.innerHTML, /Daily repeatable goals - 1/);
+});
+
+test("deferred goals move between next and today without data loss", () => {
+  const { context, elements, storage } = createHarness([
+    { id: "a1", title: "Active one", goalType: "active", focusOrder: 1 },
+    { id: "a2", title: "Active two", goalType: "active", focusOrder: 2 },
+  ]);
+
+  context.deferGoalToTomorrow("a1");
+  let saved = JSON.parse(storage["achieve.goals.v1"]);
+  assert.match(saved[0].deferredUntil, /^\d{4}-\d{2}-\d{2}$/);
+  assert.match(elements.activeList.innerHTML, /Next active goals - 1/);
+
+  context.moveGoalToToday("a1");
+  saved = JSON.parse(storage["achieve.goals.v1"]);
+  assert.equal(saved[0].deferredUntil, "");
+  assert.match(elements.activeList.innerHTML, /Today's active focus - 2/);
+});
+
+test("reorderGoal changes displayed order and persists through save", () => {
+  const { context, elements, storage } = createHarness([
+    { id: "a1", title: "Active one", goalType: "active", focusOrder: 1, createdAt: 1 },
+    { id: "a2", title: "Active two", goalType: "active", focusOrder: 2, createdAt: 2 },
+  ]);
+
+  context.reorderGoal("a2", "up");
+
+  const html = elements.activeList.innerHTML;
+  assert.ok(html.indexOf("Active two") < html.indexOf("Active one"));
+  const saved = JSON.parse(storage["achieve.goals.v1"]);
+  assert.equal(saved.find((g) => g.id === "a2").focusOrder, 1);
+});
+
+test("daily completions record wins without removing the daily goal", () => {
+  const { context, elements, storage } = createHarness([
+    { id: "daily", title: "Complete Morning Routine", goalType: "daily", dailyMinimum: "Water", dailyStandard: "Routine", dailyMax: "Routine plus run" },
+  ]);
+
+  context.completeDailyGoal("daily", "minimum");
+  context.completeDailyGoal("daily", "standard");
+  context.completeDailyGoal("daily", "max");
+
+  const saved = JSON.parse(storage["achieve.goals.v1"]);
+  assert.equal(saved[0].achievedAt, null);
+  assert.deepEqual(saved[0].dailyCompletions.map((item) => item.level), ["minimum", "standard", "max"]);
+  assert.match(elements.dailyList.innerHTML, /Complete Morning Routine/);
+  assert.match(elements.doneWrap.innerHTML, /Daily win/);
+  assert.match(elements.doneWrap.innerHTML, /Complete Morning Routine - Standard/);
+});
+
+test("daily fields survive editing and save compatibility", () => {
+  const { context, elements, storage } = createHarness([
+    { id: "daily", title: "Daily", goalType: "daily", notes: "Old", dailyMinimum: "Min", dailyStandard: "Std", dailyMax: "Max" },
+  ]);
+
+  context.openForm("daily");
+  elements.fTitle.value = "Daily updated";
+  elements.fDailyNotes.value = "New notes";
+  elements.fDailyMinimum.value = "New min";
+  elements.fDailyStandard.value = "New standard";
+  elements.fDailyMax.value = "New max";
+  context.saveForm();
+  context.save();
+
+  const saved = JSON.parse(storage["achieve.goals.v1"]);
+  assert.equal(saved[0].goalType, "daily");
+  assert.equal(saved[0].title, "Daily updated");
+  assert.equal(saved[0].notes, "New notes");
+  assert.equal(saved[0].dailyMinimum, "New min");
+  assert.equal(saved[0].dailyStandard, "New standard");
+  assert.equal(saved[0].dailyMax, "New max");
 });
 
 test("winGoal moves a standalone small goal into victories", () => {

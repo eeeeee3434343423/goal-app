@@ -10,3 +10,4 @@
 - Timer sessions should stay separate from win state. Logging 30 minutes or 1 hour records effort on a standalone small goal, but only the explicit Win action should move it into Victories.
 - Firebase cloud save should remain local-first: write localStorage and render before attempting Firestore, and surface cloud failures without blocking the app.
 - Demo data should be explicit and confirmation-gated because it replaces the user's current goals through the normal save path.
+- Daily repeatable goals should record completion events instead of using `achievedAt`; focus limits should split overflow into visible next sections so limiting today's work never hides or deletes saved goals.
