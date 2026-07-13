@@ -1,0 +1,724 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Achieve - Goal Tracker</title>
+<style>
+  :root{--text:#2C2C2B;--text2:#7D7A75;--canvas:#FFFFFF;--soft:#F9F8F7;--soft2:#F0EFED;--border:#E6E5E3;
+    --blue:#2783DE;--blueBg:#E5F2FC;--green:#46A171;--greenBg:#E8F1EC;--red:#E56458;--redBg:#FCE9E7;--gold:#B58A2A;--goldBg:#FBF3D9;--ink:#304252;}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:var(--soft);color:var(--text);font-size:15px;line-height:1.5}
+  .wrap{max-width:940px;margin:0 auto;padding:28px 20px 60px}
+  header{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+  h1{font-size:26px;margin:0}
+  .sub{color:var(--text2);margin:2px 0 0;font-size:14px}
+  .hdr-btns{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+  button{font:inherit;border:1px solid var(--border);background:var(--canvas);border-radius:8px;padding:8px 14px;cursor:pointer;font-weight:600;font-size:14px}
+  button:hover{background:var(--soft)}
+  .primary{background:var(--blue);border-color:var(--blue);color:#fff}
+  .primary:hover{background:#1F74C9}
+  .secondary{background:var(--ink);border-color:var(--ink);color:#fff}
+  .secondary:hover{background:#243544}
+  .banner{background:var(--goldBg);border:1px solid #E8D9A8;border-radius:12px;padding:12px 16px;font-size:14px;margin-bottom:18px}
+  .card{background:var(--canvas);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:14px;position:relative}
+  .card.mdp{border-top:3px solid var(--gold)}
+  .future-card{border-left:3px solid var(--ink)}
+  .small-card{border-left:3px solid var(--blue)}
+  .mdp-chip,.future-chip{display:inline-block;font-size:11px;font-weight:800;letter-spacing:.5px;border-radius:6px;padding:2px 8px;margin-bottom:6px;text-transform:uppercase}
+  .mdp-chip{background:var(--goldBg);color:var(--gold)}
+  .future-chip{background:#E8EDF1;color:var(--ink)}
+  .goal-title{font-size:18px;font-weight:700;margin:0 0 4px;padding-right:142px}
+  .why{color:var(--text2);font-size:13.5px;margin:0 0 10px}
+  .meta{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;color:var(--text2);margin-bottom:10px}
+  .meta b{color:var(--text)}
+  .bar{height:8px;background:var(--soft2);border-radius:99px;overflow:hidden;margin:4px 0 4px}
+  .bar>div{height:100%;background:var(--blue);border-radius:99px;transition:width .3s}
+  .bar-row{display:flex;justify-content:space-between;font-size:12px;color:var(--text2);margin-bottom:8px}
+  .ms{margin-top:8px;border-top:1px solid var(--soft2);padding-top:8px}
+  .list-title{font-size:12px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);margin:8px 0 4px}
+  .ms label{display:flex;gap:9px;align-items:flex-start;padding:4px 0;font-size:14px;cursor:pointer}
+  .ms input{margin-top:4px;accent-color:var(--green)}
+  .ms .done-txt{text-decoration:line-through;color:var(--text2)}
+  .small-summary{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:8px;border-top:1px solid var(--soft2);padding-top:10px}
+  .small-summary b{font-size:13px}
+  .small-summary span{color:var(--text2);font-size:12.5px}
+  .small-preview{margin-top:6px;color:var(--text2);font-size:13px}
+  .small-preview div{padding:2px 0}
+  .small-goal-row{display:grid;grid-template-columns:auto 1fr auto;gap:9px;align-items:start;border-bottom:1px solid var(--soft2);padding:8px 0}
+  .small-goal-row input{margin-top:4px;accent-color:var(--green)}
+  .small-goal-row .done-txt{text-decoration:line-through;color:var(--text2)}
+  .small-goal-row button{padding:4px 8px;font-size:12px;color:var(--red);border-color:#F0BBB5}
+  .quick-add{display:grid;grid-template-columns:1fr auto;gap:8px;margin:12px 0}
+  .victory-card{border-left:3px solid var(--green);opacity:1}
+  .card-btns{position:absolute;top:14px;right:14px;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+  .card-btns button{padding:5px 10px;font-size:12.5px}
+  .achieve-btn{color:var(--green);border-color:#BFDCCB}
+  .sec-label{font-size:12px;font-weight:700;letter-spacing:.6px;color:var(--text2);text-transform:uppercase;margin:22px 0 10px}
+  .empty{background:var(--canvas);border:1px dashed var(--border);border-radius:12px;padding:28px 22px;text-align:center;color:var(--text2);margin-bottom:14px}
+  .empty b{color:var(--text)}
+  .achieved-card{opacity:.75}
+  .achieved-card .goal-title{text-decoration:line-through}
+  details.done-sec summary{cursor:pointer;font-weight:600;color:var(--text2);font-size:14px;margin-bottom:8px}
+  .overlay{display:none;position:fixed;inset:0;background:rgba(44,44,43,.45);z-index:50;overflow-y:auto;padding:30px 14px}
+  .overlay.open{display:block}
+  .modal{background:var(--canvas);max-width:640px;margin:0 auto;border-radius:14px;padding:22px}
+  .modal h2{margin:0 0 2px;font-size:19px}
+  .modal .hint{color:var(--text2);font-size:13px;margin:0 0 14px}
+  .mode-tabs{display:flex;gap:8px;margin:10px 0 12px}
+  .mode-tabs button{flex:1}
+  .mode-tabs button.active{background:var(--blueBg);border-color:#B7D8F4;color:#145C9B}
+  .step{font-size:11.5px;font-weight:800;letter-spacing:.5px;color:var(--blue);text-transform:uppercase;margin:14px 0 3px}
+  .step small{color:var(--text2);font-weight:500;text-transform:none;letter-spacing:0}
+  input[type=text],input[type=date],input[type=month],textarea{width:100%;font:inherit;border:1px solid var(--border);border-radius:8px;padding:9px 11px;background:var(--canvas);color:var(--text)}
+  textarea{min-height:60px;resize:vertical}
+  .chk{display:flex;gap:8px;align-items:center;margin-top:10px;font-size:14px}
+  .chk input{accent-color:var(--gold);width:16px;height:16px}
+  .modal-btns{display:flex;gap:8px;justify-content:flex-end;margin-top:18px}
+  .danger{color:var(--red);border-color:#F0BBB5;margin-right:auto}
+  .hide{display:none}
+  @media(max-width:640px){.wrap{padding:20px 14px 48px}.goal-title{padding-right:0;margin-top:36px}.card-btns{left:14px;right:14px;justify-content:flex-start}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Achieve</h1>
+      <p class="sub">Goal tracking built on the Psychology of Achievement</p>
+    </div>
+    <div class="hdr-btns">
+      <button onclick="exportGoals()">Export</button>
+      <button onclick="document.getElementById('importFile').click()">Import</button>
+      <input type="file" id="importFile" accept=".json" style="display:none" onchange="importGoals(this)">
+      <button onclick="openForm(null, 'small')">Small goal</button>
+      <button class="secondary" onclick="openForm(null, 'future')">Future idea</button>
+      <button class="primary" onclick="openForm(null, 'active')">New goal</button>
+    </div>
+  </header>
+  <div class="banner" id="banner" style="display:none"></div>
+  <div id="activeList"></div>
+  <div id="smallList"></div>
+  <div id="futureList"></div>
+  <div id="doneWrap"></div>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="modal">
+    <h2 id="formTitle">New goal</h2>
+    <p class="hint" id="formHint">The Psychology of Achievement method: written, specific, deadlined, planned, and reviewed daily.</p>
+    <div class="mode-tabs" id="modeTabs">
+      <button id="tabActive" onclick="setFormMode('active')" type="button">Active goal</button>
+      <button id="tabSmall" onclick="setFormMode('small')" type="button">Small goal</button>
+      <button id="tabFuture" onclick="setFormMode('future')" type="button">Future idea</button>
+    </div>
+
+    <div class="step">1 - The goal <small id="titleHelp">written, positive, specific, measurable</small></div>
+    <input type="text" id="fTitle" placeholder="e.g. I earn my first $500/month from APEX Learning">
+
+    <div id="futureFields">
+      <div class="step">2 - Estimate <small>month and year are enough</small></div>
+      <input type="month" id="fFutureMonth">
+      <div class="step">3 - Description <small>what this idea is and why it matters</small></div>
+      <textarea id="fDescription" placeholder="Short description, reason, or first thought"></textarea>
+    </div>
+
+    <div id="smallFields">
+      <div class="step">2 - Target date <small>small goals should take one day or less</small></div>
+      <input type="date" id="fTargetDate">
+      <div class="step">3 - About <small>short note about the quick win</small></div>
+      <textarea id="fSmallAbout" placeholder="What is this small goal about?"></textarea>
+    </div>
+
+    <div id="activeFields">
+      <div class="chk"><input type="checkbox" id="fMdp"><label for="fMdp"><b>Major Definite Purpose</b> - my #1 goal, the one that matters most</label></div>
+      <div class="step">2 - Why I want it <small>desire is the fuel; list the benefits</small></div>
+      <textarea id="fWhy" placeholder="What changes when I achieve this? Why does it matter?"></textarea>
+      <div class="step">3 - Deadline <small>a goal without a deadline is a wish</small></div>
+      <input type="date" id="fDeadline">
+      <div class="step">4 - Starting point <small>where am I honestly today?</small></div>
+      <textarea id="fStart" placeholder="Current situation, honestly assessed"></textarea>
+      <div class="step">5 - Obstacles <small>what stands between me and the goal?</small></div>
+      <textarea id="fObstacles" placeholder="Biggest obstacle first - that is usually the real work"></textarea>
+      <div class="step">6 - Knowledge and people <small>what must I learn, whose help do I need?</small></div>
+      <textarea id="fSkills" placeholder="Skills to build, people who can help"></textarea>
+      <div class="step">7 - Milestone goals <small>one per line; bigger checkpoints for progress</small></div>
+      <textarea id="fMilestones" placeholder="First milestone&#10;Second milestone&#10;Third milestone" style="min-height:90px"></textarea>
+      <div class="step">8 - Small goals <small>one per line; concrete next actions</small></div>
+      <textarea id="fSmallGoals" placeholder="Email one potential customer&#10;Spend 25 minutes on the draft&#10;Publish the first version" style="min-height:90px"></textarea>
+    </div>
+
+    <div class="modal-btns">
+      <button class="danger" id="btnDelete" style="display:none" onclick="deleteGoal()">Delete</button>
+      <button onclick="closeForm()">Cancel</button>
+      <button class="primary" onclick="saveForm()" id="saveButton">Save goal</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="smallGoalsOverlay">
+  <div class="modal">
+    <h2 id="smallGoalsTitle">Small goals</h2>
+    <p class="hint" id="smallGoalsHint">Day-or-less wins and action goals for this larger goal.</p>
+    <div class="quick-add">
+      <input type="text" id="newSmallGoalText" placeholder="Add one small goal">
+      <button class="primary" onclick="addSmallGoalFromInput()">Add</button>
+    </div>
+    <div id="smallGoalsList"></div>
+    <div class="modal-btns">
+      <button onclick="closeSmallGoals()">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+var KEY = "achieve.goals.v1";
+var DEMO = typeof window.__DEMO_STATE === "string";
+var goals = [];
+var editId = null;
+var formMode = "active";
+var smallGoalsGoalId = null;
+var lockedEditMode = null;
+
+function esc(s){ return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
+function uid(){ return "g" + Date.now() + Math.floor(Math.random() * 10000); }
+function todayInputValue(){
+  var d = new Date();
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+function normalizeChecklist(items){
+  var list = Array.isArray(items) ? items : [];
+  return list.map(function(item){
+    if (typeof item === "string") return { text: item, done: false };
+    return { text: item.text || item.name || item.title || "", done: !!(item.done || item.completed) };
+  }).filter(function(item){ return item.text; });
+}
+function normalizeSmallGoals(items){
+  var list = Array.isArray(items) ? items : [];
+  return list.map(function(item){
+    var now = Date.now();
+    if (typeof item === "string"){
+      return { id: uid(), text: item, done: false, createdAt: now, completedAt: null };
+    }
+    var done = !!(item.done || item.completed);
+    return {
+      id: item.id || uid(),
+      text: item.text || item.name || item.title || "",
+      done: done,
+      createdAt: item.createdAt || now,
+      completedAt: item.completedAt || (done ? now : null)
+    };
+  }).filter(function(item){ return item.text; });
+}
+function normalizeTimerSessions(items){
+  var list = Array.isArray(items) ? items : [];
+  return list.map(function(item){
+    item = item || {};
+    var minutes = Math.floor(Number(item.minutes));
+    if (!minutes || minutes <= 0) return null;
+    var completedAt = item.completedAt || Date.now();
+    return {
+      id: item.id || uid(),
+      minutes: minutes,
+      startedAt: item.startedAt || completedAt - minutes * 60000,
+      completedAt: completedAt
+    };
+  }).filter(Boolean);
+}
+function normalizeGoalType(g){
+  if (g.goalType === "future" || g.type === "future" || g.future === true) return "future";
+  if (g.goalType === "small" || g.type === "small" || g.small === true) return "small";
+  return "active";
+}
+
+/* tolerant load - accepts older saved shapes */
+function normalize(g){
+  g = g || {};
+  var goalType = normalizeGoalType(g);
+  var description = g.description || g.desc || "";
+  var why = g.why || g.benefits || "";
+  if (goalType === "future" && !description) description = why;
+  return {
+    id: g.id || uid(),
+    title: g.title || g.name || g.goal || "Untitled goal",
+    goalType: goalType,
+    futureMonth: g.futureMonth || g.estimatedMonth || g.estimateMonth || "",
+    targetDate: g.targetDate || g.date || "",
+    description: description,
+    mdp: !!(g.mdp || g.isMDP),
+    why: why,
+    deadline: g.deadline || g.due || "",
+    start: g.start || g.startingPoint || "",
+    obstacles: typeof g.obstacles === "string" ? g.obstacles : Array.isArray(g.obstacles) ? g.obstacles.join("; ") : "",
+    skills: g.skills || g.knowledge || "",
+    milestones: normalizeChecklist(g.milestones),
+    smallGoals: normalizeSmallGoals(g.smallGoals || g.actions || g.tasks),
+    timerSessions: normalizeTimerSessions(g.timerSessions),
+    preAchieveMilestones: Array.isArray(g.preAchieveMilestones) ? g.preAchieveMilestones : null,
+    preAchieveSmallGoals: Array.isArray(g.preAchieveSmallGoals) ? g.preAchieveSmallGoals : null,
+    createdAt: g.createdAt || Date.now(),
+    achievedAt: g.achievedAt || (g.achieved ? Date.now() : null)
+  };
+}
+function load(){
+  if (DEMO){
+    goals = [
+      normalize({ title: "I earn my first $500/month from APEX Learning", mdp: true, why: "Proof I can build income from my own skills.", deadline: "2026-09-01", milestones: [{text:"Launch v1",done:true},{text:"First 10 users",done:true},{text:"First paying user",done:false},{text:"$500 month",done:false}], smallGoals: ["Write offer page", "Ask 3 people for feedback"] }),
+      normalize({ title: "Call one potential customer", goalType: "small", targetDate: todayInputValue(), description: "A one-day outreach win." }),
+      normalize({ title: "Launch a private accountability group", goalType: "future", futureMonth: "2026-10", description: "A possible monthly group for people building income and discipline." })
+    ];
+    return;
+  }
+  try { goals = (JSON.parse(localStorage.getItem(KEY)) || []).map(normalize); }
+  catch(e){ goals = []; }
+}
+function save(){ if (!DEMO) try { localStorage.setItem(KEY, JSON.stringify(goals)); } catch(e){} render(); }
+
+function progress(g){
+  var items = (g.milestones || []).concat(g.smallGoals || []);
+  if (!items.length) return null;
+  var done = items.filter(function(item){ return item.done; }).length;
+  return Math.round(100 * done / items.length);
+}
+function smallGoalSummary(g){
+  var items = g.smallGoals || [];
+  var done = items.filter(function(item){ return item.done; }).length;
+  return { total: items.length, done: done, open: items.length - done };
+}
+function totalTimerMinutes(g){
+  return (g.timerSessions || []).reduce(function(total, session){ return total + (Number(session.minutes) || 0); }, 0);
+}
+function formatMinutes(minutes){
+  minutes = Math.floor(Number(minutes) || 0);
+  if (minutes <= 0) return "0 min";
+  var h = Math.floor(minutes / 60);
+  var m = minutes % 60;
+  if (!h) return m + " min";
+  if (!m) return h + " h";
+  return h + " h " + m + " min";
+}
+function recentSmallGoals(g, limit){
+  return (g.smallGoals || []).slice().sort(function(a, b){
+    if (a.done !== b.done) return a.done ? 1 : -1;
+    return (b.createdAt || 0) - (a.createdAt || 0);
+  }).slice(0, limit);
+}
+function daysLeft(g){
+  if (!g.deadline) return null;
+  var diff = Math.ceil((new Date(g.deadline + "T23:59:59") - new Date()) / 86400000);
+  return diff;
+}
+function formatMonth(value){
+  if (!value) return "Someday";
+  var parts = String(value).split("-");
+  if (parts.length !== 2) return value;
+  var date = new Date(Number(parts[0]), Number(parts[1]) - 1, 1);
+  if (isNaN(date.getTime())) return value;
+  return date.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+}
+function formatDate(value){
+  if (!value) return "";
+  var date = new Date(value);
+  if (isNaN(date.getTime())) return "";
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+function render(){
+  var active = goals.filter(function(g){ return g.goalType !== "future" && g.goalType !== "small" && !g.achievedAt; });
+  var small = goals.filter(function(g){ return g.goalType === "small" && !g.achievedAt; });
+  var future = goals.filter(function(g){ return g.goalType === "future" && !g.achievedAt; });
+  var done = goals.filter(function(g){ return g.achievedAt; });
+  active.sort(function(a, b){ return (b.mdp ? 1 : 0) - (a.mdp ? 1 : 0); });
+  future.sort(function(a, b){ return String(a.futureMonth || "9999-99").localeCompare(String(b.futureMonth || "9999-99")); });
+
+  var h = new Date().getHours(), banner = document.getElementById("banner");
+  if (h >= 5 && h < 10 && active.length){
+    banner.style.display = "";
+    banner.innerHTML = '<b>Golden Hour.</b> Read your goals out loud, visualize each one complete, then do the first task that moves your Major Definite Purpose.';
+  } else banner.style.display = "none";
+
+  var activeEl = document.getElementById("activeList");
+  if (!active.length){
+    activeEl.innerHTML = '<div class="empty"><b>No active goals yet.</b><br>Start with your <b>Major Definite Purpose</b> - the one goal that would change everything. Click <b>New goal</b>.</div>';
+  } else {
+    activeEl.innerHTML = '<div class="sec-label">Active goals - ' + active.length + '</div>' + active.map(cardHtml).join("");
+  }
+
+  var smallEl = document.getElementById("smallList");
+  if (!small.length){
+    smallEl.innerHTML = '<div class="sec-label">Small goals - 1 day or less</div><div class="empty"><b>No small goals saved.</b><br>Capture quick wins here when they should be finishable today or within one day.</div>';
+  } else {
+    smallEl.innerHTML = '<div class="sec-label">Small goals - 1 day or less - ' + small.length + '</div>' + small.map(smallCardHtml).join("");
+  }
+
+  var futureEl = document.getElementById("futureList");
+  if (!future.length){
+    futureEl.innerHTML = '<div class="sec-label">Future goals / ideas</div><div class="empty"><b>No future goals saved.</b><br>Capture ideas here before they are ready to become active goals.</div>';
+  } else {
+    futureEl.innerHTML = '<div class="sec-label">Future goals / ideas - ' + future.length + '</div>' + future.map(cardHtml).join("");
+  }
+
+  var doneWrap = document.getElementById("doneWrap");
+  doneWrap.innerHTML = done.length ? '<div class="sec-label">Victories / wins - ' + done.length + '</div>' + done.map(victoryCardHtml).join("") : '<div class="sec-label">Victories / wins</div><div class="empty"><b>No wins logged yet.</b><br>Achieved goals will show up here as proof of progress.</div>';
+}
+function smallCardHtml(g){
+  return '<div class="card small-card">' +
+    '<div class="card-btns"><button class="achieve-btn" onclick="achieveGoal(\'' + g.id + '\')">Win</button><button onclick="openForm(\'' + g.id + '\')">Edit</button></div>' +
+    '<span class="future-chip">1 day or less</span>' +
+    '<div class="goal-title">' + esc(g.title) + '</div>' +
+    (g.description ? '<p class="why">' + esc(g.description) + '</p>' : '') +
+    '<div class="meta"><span>Target: <b>' + esc(g.targetDate || "Today") + '</b></span><span>Time: <b>' + esc(formatMinutes(totalTimerMinutes(g))) + '</b></span></div>' +
+    timerControlsHtml(g) +
+  '</div>';
+}
+function timerControlsHtml(g){
+  if (g.goalType !== "small" || g.achievedAt) return "";
+  return '<div class="small-summary"><div><b>Timer sessions</b><br><span>' + (g.timerSessions || []).length + ' sessions logged</span></div><div class="card-btns" style="position:static"><button onclick="addTimerSession(\'' + g.id + '\',30)">30 min</button><button onclick="addTimerSession(\'' + g.id + '\',60)">1 h</button><button onclick="addCustomTimerSession(\'' + g.id + '\')">Custom</button></div></div>';
+}
+function checklistHtml(g, key, title, toggleFn){
+  var items = g[key] || [];
+  if (!items.length || g.achievedAt) return "";
+  return '<div class="list-title">' + title + '</div>' + items.map(function(item, i){
+    return '<label><input type="checkbox" ' + (item.done ? 'checked' : '') + ' onchange="' + toggleFn + '(\'' + g.id + '\',' + i + ')"><span class="' + (item.done ? 'done-txt' : '') + '">' + esc(item.text) + '</span></label>';
+  }).join("");
+}
+function cardHtml(g){
+  if (g.goalType === "future" && !g.achievedAt) return futureCardHtml(g);
+  var p = progress(g), dl = daysLeft(g);
+  var achieved = !!g.achievedAt;
+  var dlTxt = dl == null ? "" : dl < 0 ? '<b style="color:var(--red)">' + Math.abs(dl) + ' days past deadline</b>' : '<b>' + dl + '</b> days left';
+  return '<div class="card ' + (g.mdp ? 'mdp ' : '') + (achieved ? 'achieved-card' : '') + '">' +
+    '<div class="card-btns">' +
+      (achieved ? '<button onclick="reopenGoal(\'' + g.id + '\')">Reopen</button>'
+        : '<button class="achieve-btn" onclick="achieveGoal(\'' + g.id + '\')">Achieved</button><button onclick="openForm(\'' + g.id + '\')">Edit</button>') +
+    '</div>' +
+    (g.mdp ? '<span class="mdp-chip">Major Definite Purpose</span>' : '') +
+    '<div class="goal-title">' + esc(g.title) + '</div>' +
+    (g.why ? '<p class="why">' + esc(g.why) + '</p>' : '') +
+    '<div class="meta">' + (g.deadline ? '<span>' + esc(g.deadline) + ' - ' + dlTxt + '</span>' : '<span>No deadline set - a goal without a deadline is a wish</span>') +
+    (g.obstacles ? '<span>Obstacle: ' + esc(g.obstacles.length > 60 ? g.obstacles.slice(0, 60) + "..." : g.obstacles) + '</span>' : '') + '</div>' +
+    (p == null ? '' : '<div class="bar"><div style="width:' + p + '%"></div></div><div class="bar-row"><span>Progress</span><span>' + p + '%</span></div>') +
+    ((g.milestones || []).length && !achieved ? '<div class="ms">' + checklistHtml(g, "milestones", "Milestone goals", "toggleMs") + '</div>' : '') +
+    (!achieved ? smallGoalsSummaryHtml(g) : '') +
+  '</div>';
+}
+function smallGoalsSummaryHtml(g){
+  var summary = smallGoalSummary(g);
+  var preview = recentSmallGoals(g, 4);
+  return '<div class="small-summary"><div><b>Small goals</b><br><span>' + summary.done + ' done, ' + summary.open + ' open, ' + summary.total + ' total</span></div><button onclick="openSmallGoals(\'' + g.id + '\')">Manage</button></div>' +
+    (preview.length ? '<div class="small-preview">' + preview.map(function(item){
+      return '<div>' + (item.done ? 'Done: ' : 'Next: ') + esc(item.text) + '</div>';
+    }).join("") + '</div>' : '<div class="small-preview">No day-sized goals yet.</div>');
+}
+function victoryCardHtml(g){
+  if (g.goalType === "small"){
+    return '<div class="card victory-card">' +
+      '<div class="card-btns"><button onclick="reopenGoal(\'' + g.id + '\')">Reopen</button></div>' +
+      '<span class="future-chip">Small goal win</span>' +
+      '<div class="goal-title">' + esc(g.title) + '</div>' +
+      (g.description ? '<p class="why">' + esc(g.description) + '</p>' : '') +
+      '<div class="meta"><span>Won: <b>' + esc(formatDate(g.achievedAt) || "Completed") + '</b></span><span>Target: <b>' + esc(g.targetDate || "Today") + '</b></span><span>Time: <b>' + esc(formatMinutes(totalTimerMinutes(g))) + '</b></span></div>' +
+    '</div>';
+  }
+  var small = smallGoalSummary(g);
+  var milestones = g.milestones || [];
+  var doneMilestones = milestones.filter(function(item){ return item.done; }).length;
+  return '<div class="card victory-card">' +
+    '<div class="card-btns"><button onclick="reopenGoal(\'' + g.id + '\')">Reopen</button></div>' +
+    '<span class="future-chip">Victory</span>' +
+    '<div class="goal-title">' + esc(g.title) + '</div>' +
+    (g.why ? '<p class="why">' + esc(g.why) + '</p>' : '') +
+    '<div class="meta"><span>Won: <b>' + esc(formatDate(g.achievedAt) || "Completed") + '</b></span><span>Milestones: <b>' + doneMilestones + '/' + milestones.length + '</b></span><span>Small goals: <b>' + small.done + '/' + small.total + '</b></span></div>' +
+  '</div>';
+}
+function futureCardHtml(g){
+  return '<div class="card future-card">' +
+    '<div class="card-btns"><button class="achieve-btn" onclick="activateFutureGoal(\'' + g.id + '\')">Activate</button><button onclick="openForm(\'' + g.id + '\')">Edit</button></div>' +
+    '<span class="future-chip">Future goal</span>' +
+    '<div class="goal-title">' + esc(g.title) + '</div>' +
+    (g.description ? '<p class="why">' + esc(g.description) + '</p>' : '') +
+    '<div class="meta"><span>Estimate: <b>' + esc(formatMonth(g.futureMonth)) + '</b></span></div>' +
+  '</div>';
+}
+
+function toggleMs(id, i){
+  var g = goals.find(function(x){ return x.id === id; });
+  if (!g || !g.milestones[i]) return;
+  g.milestones[i].done = !g.milestones[i].done;
+  save();
+}
+function toggleSmallGoal(id, smallGoalId){
+  var g = goals.find(function(x){ return x.id === id; });
+  var item = g && g.smallGoals.find(function(x){ return x.id === smallGoalId; });
+  if (!item) return;
+  item.done = !item.done;
+  item.completedAt = item.done ? Date.now() : null;
+  save();
+  if (smallGoalsGoalId === id) renderSmallGoalsManager(g);
+}
+function addSmallGoal(id, text){
+  var g = goals.find(function(x){ return x.id === id; });
+  var clean = String(text || "").trim();
+  if (!g || !clean) return;
+  g.smallGoals.push({ id: uid(), text: clean, done: false, createdAt: Date.now(), completedAt: null });
+  save();
+  if (smallGoalsGoalId === id) renderSmallGoalsManager(g);
+}
+function deleteSmallGoal(id, smallGoalId){
+  var g = goals.find(function(x){ return x.id === id; });
+  if (!g) return;
+  g.smallGoals = g.smallGoals.filter(function(item){ return item.id !== smallGoalId; });
+  save();
+  if (smallGoalsGoalId === id) renderSmallGoalsManager(g);
+}
+function openSmallGoals(id){
+  var g = goals.find(function(x){ return x.id === id; });
+  if (!g) return;
+  smallGoalsGoalId = id;
+  document.getElementById("smallGoalsOverlay").classList.add("open");
+  document.getElementById("newSmallGoalText").value = "";
+  renderSmallGoalsManager(g);
+}
+function closeSmallGoals(){
+  document.getElementById("smallGoalsOverlay").classList.remove("open");
+  smallGoalsGoalId = null;
+}
+function addSmallGoalFromInput(){
+  var text = document.getElementById("newSmallGoalText").value;
+  addSmallGoal(smallGoalsGoalId, text);
+  document.getElementById("newSmallGoalText").value = "";
+}
+function renderSmallGoalsManager(g){
+  var summary = smallGoalSummary(g);
+  document.getElementById("smallGoalsTitle").textContent = "Small goals - " + g.title;
+  document.getElementById("smallGoalsHint").textContent = summary.done + " done, " + summary.open + " open, " + summary.total + " total.";
+  var sorted = (g.smallGoals || []).slice().sort(function(a, b){
+    if (a.done !== b.done) return a.done ? 1 : -1;
+    return (b.createdAt || 0) - (a.createdAt || 0);
+  });
+  document.getElementById("smallGoalsList").innerHTML = sorted.length ? sorted.map(function(item){
+    return '<div class="small-goal-row"><input type="checkbox" ' + (item.done ? 'checked' : '') + ' onchange="toggleSmallGoal(\'' + g.id + '\',\'' + item.id + '\')"><span class="' + (item.done ? 'done-txt' : '') + '">' + esc(item.text) + (item.completedAt ? '<br><small>Won ' + esc(formatDate(item.completedAt)) + '</small>' : '') + '</span><button onclick="deleteSmallGoal(\'' + g.id + '\',\'' + item.id + '\')">Delete</button></div>';
+  }).join("") : '<div class="empty"><b>No small goals yet.</b><br>Add day-sized goals here as they come up.</div>';
+}
+function addTimerSession(id, minutes){
+  var g = goals.find(function(x){ return x.id === id && x.goalType === "small"; });
+  minutes = Math.floor(Number(minutes));
+  if (!g || !minutes || minutes <= 0) return;
+  var completedAt = Date.now();
+  g.timerSessions = normalizeTimerSessions(g.timerSessions);
+  g.timerSessions.push({ id: uid(), minutes: minutes, startedAt: completedAt - minutes * 60000, completedAt: completedAt });
+  save();
+}
+function addCustomTimerSession(id){
+  var raw = prompt("How many minutes?");
+  if (raw == null) return;
+  var minutes = Math.floor(Number(raw));
+  if (!minutes || minutes <= 0){ alert("Enter a positive number of minutes."); return; }
+  addTimerSession(id, minutes);
+}
+function achieveGoal(id){
+  var g = goals.find(function(x){ return x.id === id; });
+  if (!g) return;
+  if (!g.achievedAt){
+    g.preAchieveMilestones = g.milestones.map(function(m){ return { text: m.text, done: m.done }; });
+    g.preAchieveSmallGoals = g.smallGoals.map(function(s){ return { id: s.id, done: s.done, completedAt: s.completedAt || null }; });
+  }
+  g.achievedAt = Date.now();
+  g.milestones.forEach(function(m){ m.done = true; });
+  g.smallGoals.forEach(function(s){ s.done = true; if (!s.completedAt) s.completedAt = g.achievedAt; });
+  save();
+}
+function winGoal(id){ achieveGoal(id); }
+function reopenGoal(id){
+  var g = goals.find(function(x){ return x.id === id; });
+  if (!g) return;
+  g.achievedAt = null;
+  if (g.preAchieveMilestones){
+    g.milestones.forEach(function(m, i){ if (g.preAchieveMilestones[i]) m.done = !!g.preAchieveMilestones[i].done; });
+    g.preAchieveMilestones = null;
+  }
+  if (g.preAchieveSmallGoals){
+    g.smallGoals.forEach(function(s){
+      var prev = g.preAchieveSmallGoals.find(function(item){ return item.id === s.id; });
+      if (prev){ s.done = !!prev.done; s.completedAt = prev.completedAt || null; }
+    });
+    g.preAchieveSmallGoals = null;
+  }
+  if (g.goalType === "future") g.goalType = "active";
+  save();
+}
+function activateFutureGoal(id){
+  var g = goals.find(function(x){ return x.id === id; });
+  if (!g) return;
+  g.goalType = "active";
+  g.why = g.why || g.description || "";
+  g.description = g.description || g.why || "";
+  g.achievedAt = null;
+  save();
+}
+
+function setFormMode(mode){
+  if (editId && lockedEditMode) mode = lockedEditMode;
+  formMode = mode === "future" ? "future" : mode === "small" ? "small" : "active";
+  document.getElementById("activeFields").classList.toggle("hide", formMode !== "active");
+  document.getElementById("futureFields").classList.toggle("hide", formMode !== "future");
+  document.getElementById("smallFields").classList.toggle("hide", formMode !== "small");
+  document.getElementById("tabActive").classList.toggle("active", formMode === "active");
+  document.getElementById("tabSmall").classList.toggle("active", formMode === "small");
+  document.getElementById("tabFuture").classList.toggle("active", formMode === "future");
+  document.getElementById("formTitle").textContent = editId ? (formMode === "future" ? "Edit future idea" : formMode === "small" ? "Edit small goal" : "Edit goal") : (formMode === "future" ? "New future idea" : formMode === "small" ? "New small goal" : "New goal");
+  document.getElementById("formHint").textContent = formMode === "future" ? "Capture the idea lightly. You only need a title, rough month, and short description." : formMode === "small" ? "Use this for a standalone quick win that should take one day or less." : "The Psychology of Achievement method: written, specific, deadlined, planned, and reviewed daily.";
+  document.getElementById("titleHelp").textContent = formMode === "future" ? "short name for the idea" : formMode === "small" ? "one-day-or-less outcome" : "written, positive, specific, measurable";
+  document.getElementById("saveButton").textContent = formMode === "future" ? "Save idea" : formMode === "small" ? "Save small goal" : "Save goal";
+}
+function syncTextList(oldItems, textValue){
+  var oldList = oldItems || [];
+  return textValue.split("\n").map(function(s){ return s.trim(); }).filter(Boolean).map(function(text){
+    var prev = oldList.find(function(item){ return item.text === text; });
+    return { text: text, done: prev ? prev.done : false };
+  });
+}
+function syncSmallGoalTextList(oldItems, textValue){
+  var oldList = oldItems || [];
+  return textValue.split("\n").map(function(s){ return s.trim(); }).filter(Boolean).map(function(text){
+    var prev = oldList.find(function(item){ return item.text === text; });
+    if (prev) return { id: prev.id, text: text, done: prev.done, createdAt: prev.createdAt, completedAt: prev.completedAt || null };
+    return { id: uid(), text: text, done: false, createdAt: Date.now(), completedAt: null };
+  });
+}
+
+/* ---- form ---- */
+function openForm(id, mode){
+  editId = id || null;
+  var g = id ? goals.find(function(x){ return x.id === id; }) : null;
+  lockedEditMode = g ? g.goalType : null;
+  document.getElementById("modeTabs").style.display = g ? "none" : "";
+  setFormMode(mode || (g && g.goalType === "future" ? "future" : g && g.goalType === "small" ? "small" : "active"));
+  document.getElementById("fTitle").value = g ? g.title : "";
+  document.getElementById("fFutureMonth").value = g ? g.futureMonth : "";
+  document.getElementById("fDescription").value = g ? g.description : "";
+  document.getElementById("fTargetDate").value = g ? g.targetDate : todayInputValue();
+  document.getElementById("fSmallAbout").value = g ? g.description : "";
+  document.getElementById("fMdp").checked = g ? g.mdp : false;
+  document.getElementById("fWhy").value = g ? (g.why || g.description || "") : "";
+  document.getElementById("fDeadline").value = g ? g.deadline : "";
+  document.getElementById("fStart").value = g ? g.start : "";
+  document.getElementById("fObstacles").value = g ? g.obstacles : "";
+  document.getElementById("fSkills").value = g ? g.skills : "";
+  document.getElementById("fMilestones").value = g ? g.milestones.map(function(m){ return m.text; }).join("\n") : "";
+  document.getElementById("fSmallGoals").value = g ? g.smallGoals.map(function(s){ return s.text; }).join("\n") : "";
+  document.getElementById("btnDelete").style.display = g ? "" : "none";
+  document.getElementById("overlay").classList.add("open");
+  window.scrollTo(0, 0);
+}
+function closeForm(){ document.getElementById("overlay").classList.remove("open"); editId = null; lockedEditMode = null; document.getElementById("modeTabs").style.display = ""; }
+function saveForm(){
+  var title = document.getElementById("fTitle").value.trim();
+  if (!title){ alert(formMode === "future" ? "Give the future idea a title first." : formMode === "small" ? "Give the small goal a title first." : "Step 1: write the goal down - that is the whole method."); return; }
+  var old = editId ? goals.find(function(x){ return x.id === editId; }) : null;
+  var g;
+  if (formMode === "future"){
+    g = {
+      id: old ? old.id : uid(),
+      title: title,
+      goalType: "future",
+      futureMonth: document.getElementById("fFutureMonth").value,
+      description: document.getElementById("fDescription").value.trim(),
+      mdp: false,
+      why: old ? old.why : "",
+      deadline: old ? old.deadline : "",
+      start: old ? old.start : "",
+      obstacles: old ? old.obstacles : "",
+      skills: old ? old.skills : "",
+      milestones: old ? old.milestones : [],
+      smallGoals: old ? old.smallGoals : [],
+      timerSessions: old ? old.timerSessions : [],
+      createdAt: old ? old.createdAt : Date.now(),
+      achievedAt: old ? old.achievedAt : null
+    };
+  } else if (formMode === "small"){
+    g = {
+      id: old ? old.id : uid(),
+      title: title,
+      goalType: "small",
+      futureMonth: "",
+      targetDate: document.getElementById("fTargetDate").value || todayInputValue(),
+      description: document.getElementById("fSmallAbout").value.trim(),
+      mdp: false,
+      why: "",
+      deadline: "",
+      start: "",
+      obstacles: "",
+      skills: "",
+      milestones: old ? old.milestones : [],
+      smallGoals: old ? old.smallGoals : [],
+      timerSessions: old ? old.timerSessions : [],
+      createdAt: old ? old.createdAt : Date.now(),
+      achievedAt: old ? old.achievedAt : null
+    };
+  } else {
+    var mdp = document.getElementById("fMdp").checked;
+    if (mdp) goals.forEach(function(x){ if (!editId || x.id !== editId) x.mdp = false; });
+    g = {
+      id: old ? old.id : uid(),
+      title: title,
+      goalType: "active",
+      futureMonth: "",
+      description: "",
+      mdp: mdp,
+      why: document.getElementById("fWhy").value.trim(),
+      deadline: document.getElementById("fDeadline").value,
+      start: document.getElementById("fStart").value.trim(),
+      obstacles: document.getElementById("fObstacles").value.trim(),
+      skills: document.getElementById("fSkills").value.trim(),
+      milestones: syncTextList(old ? old.milestones : [], document.getElementById("fMilestones").value),
+      smallGoals: syncSmallGoalTextList(old ? old.smallGoals : [], document.getElementById("fSmallGoals").value),
+      timerSessions: old ? old.timerSessions : [],
+      createdAt: old ? old.createdAt : Date.now(),
+      achievedAt: old ? old.achievedAt : null
+    };
+  }
+  if (old) goals[goals.indexOf(old)] = g; else goals.push(g);
+  save();
+  closeForm();
+}
+function deleteGoal(){
+  if (!editId) return;
+  if (!confirm("Delete this goal? This cannot be undone.")) return;
+  goals = goals.filter(function(x){ return x.id !== editId; });
+  save();
+  closeForm();
+}
+
+/* ---- export / import ---- */
+function exportGoals(){
+  var blob = new Blob([JSON.stringify(goals.map(normalize), null, 2)], { type: "application/json" });
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "achieve-goals-backup-" + new Date().toISOString().slice(0, 10) + ".json";
+  a.click();
+}
+function importGoals(inp){
+  var file = inp.files && inp.files[0];
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(){
+    try {
+      var arr = JSON.parse(reader.result);
+      if (!Array.isArray(arr)) throw new Error("bad format");
+      goals = arr.map(normalize);
+      save();
+      alert("Imported " + goals.length + " goals.");
+    } catch(e){ alert("Could not read that file. Make sure it is an Export from this app."); }
+  };
+  reader.readAsText(file);
+  inp.value = "";
+}
+
+load();
+render();
+window.addEventListener("storage", function(ev){ if (ev && ev.key === KEY){ load(); render(); } });
+</script>
+</body>
+</html>
