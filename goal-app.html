@@ -46,6 +46,8 @@
   .small-summary span{color:var(--text2);font-size:12.5px}
   .small-preview{margin-top:6px;color:var(--text2);font-size:13px}
   .small-preview div{padding:2px 0}
+  .completion-row{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;border-top:1px solid var(--soft2);padding:8px 0;font-size:13px}
+  .completion-row button{padding:4px 8px;font-size:12px;color:var(--red);border-color:#F0BBB5}
   .small-goal-row{display:grid;grid-template-columns:auto 1fr auto;gap:9px;align-items:start;border-bottom:1px solid var(--soft2);padding:8px 0}
   .small-goal-row input{margin-top:4px;accent-color:var(--green)}
   .small-goal-row .done-txt{text-decoration:line-through;color:var(--text2)}
@@ -69,6 +71,8 @@
   .mode-tabs{display:flex;gap:8px;margin:10px 0 12px}
   .mode-tabs button{flex:1}
   .mode-tabs button.active{background:var(--blueBg);border-color:#B7D8F4;color:#145C9B}
+  .view-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 18px}
+  .view-tabs button.active{background:var(--blueBg);border-color:#B7D8F4;color:#145C9B}
   .step{font-size:11.5px;font-weight:800;letter-spacing:.5px;color:var(--blue);text-transform:uppercase;margin:14px 0 3px}
   .step small{color:var(--text2);font-weight:500;text-transform:none;letter-spacing:0}
   input[type=text],input[type=date],input[type=month],textarea{width:100%;font:inherit;border:1px solid var(--border);border-radius:8px;padding:9px 11px;background:var(--canvas);color:var(--text)}
@@ -101,6 +105,11 @@
     </div>
   </header>
   <div class="banner" id="banner" style="display:none"></div>
+  <div class="view-tabs">
+    <button id="viewToday" class="active" onclick="setView('today')" type="button">Today</button>
+    <button id="viewDaily" onclick="setView('daily')" type="button">Daily</button>
+    <button id="viewVictories" onclick="setView('victories')" type="button">Victories</button>
+  </div>
   <div id="activeList"></div>
   <div id="dailyList"></div>
   <div id="smallList"></div>
@@ -197,6 +206,7 @@ var DEMO = typeof window.__DEMO_STATE === "string";
 var goals = [];
 var editId = null;
 var formMode = "active";
+var currentView = "today";
 var smallGoalsGoalId = null;
 var lockedEditMode = null;
 var FIREBASE_CONFIG = {
@@ -549,6 +559,14 @@ function completeDailyGoal(id, level){
   g.dailyCompletions.push({ id: uid(), date: todayInputValue(), level: level, note: "", completedAt: Date.now() });
   save();
 }
+function removeDailyCompletion(goalId, completionId){
+  var g = goals.find(function(x){ return x.id === goalId && x.goalType === "daily"; });
+  if (!g) return;
+  var before = (g.dailyCompletions || []).length;
+  if (!confirm("Remove this daily completion?")) return;
+  g.dailyCompletions = (g.dailyCompletions || []).filter(function(c){ return c.id !== completionId; });
+  if (g.dailyCompletions.length !== before) save();
+}
 function dailyWins(){
   var wins = [];
   goals.filter(function(g){ return g.goalType === "daily"; }).forEach(function(g){
@@ -591,7 +609,32 @@ function formatDate(value){
   if (isNaN(date.getTime())) return "";
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
-
+function setView(view){
+  currentView = view === "daily" || view === "victories" ? view : "today";
+  render();
+}
+function setDisplay(id, show){
+  var el = document.getElementById(id);
+  if (el) el.style.display = show ? "" : "none";
+}
+function setViewTab(id, active){
+  var el = document.getElementById(id);
+  if (el) el.classList.toggle("active", active);
+}
+function applyViewVisibility(){
+  var isDaily = currentView === "daily";
+  var isVictories = currentView === "victories";
+  var isToday = !isDaily && !isVictories;
+  setDisplay("banner", isToday);
+  setDisplay("activeList", isToday);
+  setDisplay("smallList", isToday);
+  setDisplay("futureList", isToday);
+  setDisplay("dailyList", isDaily);
+  setDisplay("doneWrap", isVictories);
+  setViewTab("viewToday", isToday);
+  setViewTab("viewDaily", isDaily);
+  setViewTab("viewVictories", isVictories);
+}
 function render(){
   var active = goals.filter(function(g){ return g.goalType !== "future" && g.goalType !== "small" && g.goalType !== "daily" && !g.achievedAt; }).sort(activeSort);
   var activeFocus = splitFocusLists(active, ACTIVE_FOCUS_LIMIT);
@@ -616,11 +659,7 @@ function render(){
   }
 
   var dailyEl = document.getElementById("dailyList");
-  if (!daily.length){
-    dailyEl.innerHTML = '<div class="sec-label">Daily repeatable goals</div><div class="empty"><b>No daily goals yet.</b><br>Add routines like running, morning routine, or reading that can be completed every day.</div>';
-  } else {
-    dailyEl.innerHTML = '<div class="sec-label">Daily repeatable goals - ' + daily.length + '</div>' + daily.map(dailyCardHtml).join("");
-  }
+  dailyEl.innerHTML = dailyTrackerHtml(daily);
 
   var smallEl = document.getElementById("smallList");
   if (!small.length){
@@ -640,6 +679,7 @@ function render(){
   var dailyDone = dailyWins();
   var winHtml = done.map(victoryCardHtml).join("") + dailyDone.map(function(item){ return dailyVictoryHtml(item.completion, item.goal); }).join("");
   doneWrap.innerHTML = (done.length || dailyDone.length) ? '<div class="sec-label">Victories / wins - ' + (done.length + dailyDone.length) + '</div>' + winHtml : '<div class="sec-label">Victories / wins</div><div class="empty"><b>No wins logged yet.</b><br>Achieved goals and daily completions will show up here as proof of progress.</div>';
+  applyViewVisibility();
 }
 function smallCardHtml(g){
   return '<div class="card small-card">' +
@@ -652,6 +692,20 @@ function smallCardHtml(g){
     timerControlsHtml(g) +
   '</div>';
 }
+function dailyTrackerHtml(daily){
+  if (!daily.length){
+    return '<div class="sec-label">Daily tracker</div><div class="empty"><b>No daily goals yet.</b><br>Add routines like running, morning routine, reading, or Complete Morning Routine.<br><br><button class="primary" onclick="openForm(null, \'daily\')">Add daily goal</button></div>';
+  }
+  var totalWins = daily.reduce(function(total, g){ return total + (g.dailyCompletions || []).length; }, 0);
+  return '<div class="sec-label">Daily tracker - ' + daily.length + ' goals / ' + totalWins + ' wins <button onclick="openForm(null, \'daily\')" style="margin-left:8px">Add daily goal</button></div>' + daily.map(dailyCardHtml).join("");
+}
+function recentDailyCompletionsHtml(g){
+  var items = (g.dailyCompletions || []).slice().sort(function(a, b){ return (b.completedAt || 0) - (a.completedAt || 0); }).slice(0, 5);
+  if (!items.length) return '<div class="small-preview">No completions yet.</div>';
+  return '<div class="small-preview">' + items.map(function(item){
+    return '<div class="completion-row"><span><b>' + esc(levelLabel(item.level)) + '</b> - ' + esc(item.date) + '</span><button onclick="removeDailyCompletion(\'' + g.id + '\',\'' + item.id + '\')">Remove</button></div>';
+  }).join("") + '</div>';
+}
 function dailyCardHtml(g){
   return '<div class="card daily-card">' +
     '<div class="card-btns"><button onclick="openForm(\'' + g.id + '\')">Edit</button></div>' +
@@ -662,6 +716,8 @@ function dailyCardHtml(g){
     '<div class="small-summary"><div><b>Minimum if bad</b><br><span>' + esc(g.dailyMinimum || "Not set") + '</span></div><button onclick="completeDailyGoal(\'' + g.id + '\',\'minimum\')">Minimum</button></div>' +
     '<div class="small-summary"><div><b>Standard</b><br><span>' + esc(g.dailyStandard || "Not set") + '</span></div><button class="achieve-btn" onclick="completeDailyGoal(\'' + g.id + '\',\'standard\')">Standard</button></div>' +
     '<div class="small-summary"><div><b>Max</b><br><span>' + esc(g.dailyMax || "Not set") + '</span></div><button onclick="completeDailyGoal(\'' + g.id + '\',\'max\')">Max</button></div>' +
+    '<div class="list-title">Recent completions</div>' +
+    recentDailyCompletionsHtml(g) +
   '</div>';
 }
 function timerControlsHtml(g){
@@ -727,6 +783,7 @@ function victoryCardHtml(g){
 }
 function dailyVictoryHtml(completion, goal){
   return '<div class="card victory-card">' +
+    '<div class="card-btns"><button onclick="removeDailyCompletion(\'' + goal.id + '\',\'' + completion.id + '\')">Remove</button></div>' +
     '<span class="future-chip">Daily win</span>' +
     '<div class="goal-title">' + esc(goal.title + " - " + levelLabel(completion.level)) + '</div>' +
     '<p class="why">' + esc((completion.level === "minimum" ? goal.dailyMinimum : completion.level === "max" ? goal.dailyMax : goal.dailyStandard) || goal.notes || "") + '</p>' +

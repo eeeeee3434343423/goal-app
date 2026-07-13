@@ -43,6 +43,9 @@ function createHarness(seedGoals = []) {
   const ids = [
     "banner",
     "saveStatus",
+    "viewToday",
+    "viewDaily",
+    "viewVictories",
     "activeList",
     "smallList",
     "dailyList",
@@ -430,16 +433,25 @@ test("render places active, standalone small, future, and won goals in separate 
 });
 
 test("daily goals render in daily section and not active or small", () => {
-  const { elements } = createHarness([
+  const { context, elements } = createHarness([
     { id: "daily", title: "Complete Morning Routine", goalType: "daily", dailyMinimum: "Water", dailyStandard: "Routine", dailyMax: "Routine plus run" },
     { id: "active", title: "Active goal", goalType: "active" },
     { id: "small", title: "One day task", goalType: "small" },
   ]);
 
-  assert.match(elements.dailyList.innerHTML, /Daily repeatable goals - 1/);
-  assert.match(elements.dailyList.innerHTML, /Complete Morning Routine/);
+  assert.match(elements.dailyList.innerHTML, /Daily tracker - 1 goals/);
+  assert.equal(elements.dailyList.style.display, "none");
   assert.doesNotMatch(elements.activeList.innerHTML, /Complete Morning Routine/);
   assert.doesNotMatch(elements.smallList.innerHTML, /Complete Morning Routine/);
+
+  context.setView("daily");
+
+  assert.match(elements.dailyList.innerHTML, /Daily tracker - 1 goals/);
+  assert.match(elements.dailyList.innerHTML, /Complete Morning Routine/);
+  assert.equal(elements.viewDaily.classList.contains("active"), true);
+  assert.equal(elements.dailyList.style.display, "");
+  assert.equal(elements.activeList.style.display, "none");
+  assert.equal(elements.smallList.style.display, "none");
 });
 
 test("focus limits split active and standalone small goals into today and next sections", () => {
@@ -451,7 +463,7 @@ test("focus limits split active and standalone small goals into today and next s
   assert.match(elements.activeList.innerHTML, /Next active goals - 2/);
   assert.match(elements.smallList.innerHTML, /Today's small goals - 1 day or less - 20/);
   assert.match(elements.smallList.innerHTML, /Next small goals - 2/);
-  assert.match(elements.dailyList.innerHTML, /Daily repeatable goals - 1/);
+  assert.equal(elements.dailyList.style.display, "none");
 });
 
 test("deferred goals move between next and today without data loss", () => {
@@ -497,9 +509,35 @@ test("daily completions record wins without removing the daily goal", () => {
   const saved = JSON.parse(storage["achieve.goals.v1"]);
   assert.equal(saved[0].achievedAt, null);
   assert.deepEqual(saved[0].dailyCompletions.map((item) => item.level), ["minimum", "standard", "max"]);
-  assert.match(elements.dailyList.innerHTML, /Complete Morning Routine/);
+  assert.equal(elements.dailyList.style.display, "none");
   assert.match(elements.doneWrap.innerHTML, /Daily win/);
   assert.match(elements.doneWrap.innerHTML, /Complete Morning Routine - Standard/);
+
+  context.setView("daily");
+
+  assert.match(elements.dailyList.innerHTML, /Complete Morning Routine/);
+});
+
+test("daily tracker can remove a mistaken completion and sync victories", () => {
+  const { context, elements, storage } = createHarness([
+    { id: "daily", title: "Complete Morning Routine", goalType: "daily", dailyMinimum: "Water", dailyStandard: "Routine", dailyMax: "Routine plus run" },
+  ]);
+
+  context.setView("daily");
+  context.completeDailyGoal("daily", "standard");
+  let saved = JSON.parse(storage["achieve.goals.v1"]);
+  const completionId = saved[0].dailyCompletions[0].id;
+
+  assert.match(elements.dailyList.innerHTML, /Recent completions/);
+  assert.match(elements.dailyList.innerHTML, /Standard/);
+  assert.match(elements.doneWrap.innerHTML, /Complete Morning Routine - Standard/);
+
+  context.removeDailyCompletion("daily", completionId);
+
+  saved = JSON.parse(storage["achieve.goals.v1"]);
+  assert.deepEqual(saved[0].dailyCompletions, []);
+  assert.match(elements.dailyList.innerHTML, /No completions yet/);
+  assert.doesNotMatch(elements.doneWrap.innerHTML, /Complete Morning Routine - Standard/);
 });
 
 test("daily fields survive editing and save compatibility", () => {

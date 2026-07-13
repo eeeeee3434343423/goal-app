@@ -167,6 +167,74 @@ No implementation code for this addendum will be changed until this plan is appr
 
 ---
 
+# Plan Addendum: Daily Goals Page and Completion Tracker
+
+## Refine
+Make Daily Goals feel like its own in-app page/tab, and improve daily completion tracking so each completed daily win can be added, reviewed, or removed.
+
+## Files to Change
+1. `goal-app.html`
+   - Add a simple in-app navigation state:
+     - `var currentView = "today";`
+     - supported values: `"today"`, `"daily"`, `"future"`, `"victories"` if useful, with daily as the main new page.
+   - Add top navigation buttons near the header:
+     - `Today`
+     - `Daily`
+     - optional existing sections can stay on Today if keeping the change small.
+   - Add helper signatures:
+     - `function setView(view)`
+       - Switches the visible section without leaving the HTML file or losing saved state.
+     - `function renderTodayView(activeFocus, smallFocus, future)`
+       - Shows active focus, small goals, and future ideas.
+     - `function renderDailyView(dailyGoals)`
+       - Shows only daily repeatable goals and daily tracker controls.
+   - Keep the existing `Daily goal` add button, but make it naturally available from the Daily page.
+   - Improve each daily goal card:
+     - Title and notes.
+     - Editable Minimum / Standard / Max fields through the existing edit form.
+     - Completion buttons for Minimum, Standard, and Max.
+     - A recent completion list below the card.
+     - A delete/remove action per completion.
+   - Add helper signatures:
+     - `function removeDailyCompletion(goalId, completionId)`
+       - Removes a single daily completion after confirmation.
+     - `function dailyCompletionListHtml(g)`
+       - Renders recent completions for one daily goal.
+   - Improve daily wins:
+     - Daily completions remain visible in Victories as `Daily win`.
+     - Removing a completion removes the matching Victory entry.
+   - Preserve current saved data compatibility:
+     - Keep `goalType: "daily"`.
+     - Keep `dailyCompletions: [{ id, date, level, note, completedAt }]`.
+     - Do not count daily goals against active or small goal limits.
+
+2. `tests/goal-app.test.js`
+   - Add coverage that `setView("daily")` hides Today content and shows Daily content.
+   - Add coverage that Daily page cards show recent completions.
+   - Add coverage that `removeDailyCompletion(goalId, completionId)` removes only the chosen completion.
+   - Add coverage that removing a daily completion also removes its Victory entry.
+   - Add coverage that editing daily Minimum / Standard / Max still persists.
+
+3. `LEARNINGS.md`
+   - Append one short lesson if this reveals a new rule about daily tracker behavior.
+
+## Test Cases
+1. Daily goals have their own page-like view inside the app.
+2. Today view still shows active and small goal focus limits.
+3. Adding a Minimum / Standard / Max completion updates the daily card and Victories.
+4. Removing one completion leaves other completions intact.
+5. Daily completion data survives save/load normalization.
+
+## Verification Commands
+1. `node --test tests/goal-app.test.js`
+2. `node --check tests/goal-app.test.js`
+3. Extract and parse the `goal-app.html` browser script with Node.
+
+## Stop Point
+No implementation code for this addendum will be changed until this plan is approved.
+
+---
+
 # Plan Addendum: Daily Repeatable Goals and Goal Notes
 
 ## Refine
