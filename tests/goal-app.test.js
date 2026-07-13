@@ -42,6 +42,7 @@ function createHarness(seedGoals = []) {
   const elements = {};
   const ids = [
     "banner",
+    "saveStatus",
     "activeList",
     "smallList",
     "futureList",
@@ -100,7 +101,7 @@ function createHarness(seedGoals = []) {
     FileReader: class FileReader {},
     alert(message) { context.lastAlert = message; },
     prompt() { return context.nextPromptValue; },
-    confirm() { return true; },
+    confirm() { return context.confirmValue !== false; },
     localStorage: {
       getItem(key) {
         return Object.prototype.hasOwnProperty.call(storage, key) ? storage[key] : null;
@@ -120,6 +121,7 @@ function createHarness(seedGoals = []) {
     },
     window: {
       __storage: storage,
+      __SKIP_CLOUD_SAVE: true,
       addEventListener() {},
       scrollTo() {},
     },
@@ -132,6 +134,20 @@ function createHarness(seedGoals = []) {
   vm.runInContext(extractScript(), context, { filename: "goal-app.html" });
   return { context, elements, storage };
 }
+
+test("save falls back to localStorage when Firebase is unavailable", () => {
+  const { context, storage, elements } = createHarness([]);
+  context.goals = [
+    context.normalize({ id: "local", title: "Local fallback", goalType: "small" }),
+  ];
+  context.cloudSave.ready = false;
+
+  assert.doesNotThrow(() => context.save());
+
+  const saved = JSON.parse(storage["achieve.goals.v1"]);
+  assert.equal(saved[0].title, "Local fallback");
+  assert.equal(elements.saveStatus.textContent, "Saved locally");
+});
 
 test("normalization preserves current exported milestone-only data", () => {
   const { context } = createHarness([]);
@@ -624,4 +640,95 @@ test("winning a small goal preserves timer history in victory rendering", () => 
   assert.equal(saved[0].timerSessions.length, 2);
   assert.match(elements.doneWrap.innerHTML, /Timed small/);
   assert.match(elements.doneWrap.innerHTML, /1 h 30 min/);
+});
+
+test("save writes localStorage before cloud save", async () => {
+  const { context, storage, elements } = createHarness([
+    { id: "small", title: "Small", goalType: "small" },
+  ]);
+  let cloudCalled = false;
+  context.cloudSave.ready = true;
+  context.cloudSave.docRef = {};
+  context.cloudSave.serverTimestamp = () => "server-time";
+  context.cloudSave.setDoc = async () => { cloudCalled = true; };
+
+  context.goals[0].title = "Saved locally first";
+  context.save();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const saved = JSON.parse(storage["achieve.goals.v1"]);
+  assert.equal(saved[0].title, "Saved locally first");
+  assert.equal(cloudCalled, true);
+  assert.equal(elements.saveStatus.textContent, "Cloud saved");
+});
+
+test("save does not throw when cloud save fails", async () => {
+  const { context, storage, elements } = createHarness([
+    { id: "small", title: "Small", goalType: "small" },
+  ]);
+  context.cloudSave.ready = true;
+  context.cloudSave.docRef = {};
+  context.cloudSave.setDoc = async () => { throw new Error("offline"); };
+
+  assert.doesNotThrow(() => context.save());
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const saved = JSON.parse(storage["achieve.goals.v1"]);
+  assert.equal(saved[0].title, "Small");
+  assert.equal(elements.saveStatus.textContent, "Cloud unavailable");
+});
+
+test("loadCloudGoals normalizes cloud-loaded arrays", async () => {
+  const { context } = createHarness([]);
+  context.cloudSave.ready = true;
+  context.cloudSave.docRef = {};
+  context.cloudSave.getDoc = async () => ({
+    exists: () => true,
+    data: () => ({ goals: [{ id: "future", type: "future", title: "Later", desc: "Cloud", estimatedMonth: "2028-05" }] }),
+  });
+
+  const loaded = await context.loadCloudGoals();
+
+  assert.equal(loaded[0].goalType, "future");
+  assert.equal(loaded[0].description, "Cloud");
+  assert.equal(loaded[0].futureMonth, "2028-05");
+});
+
+test("demoGoals includes active, small, future, and achieved goals", () => {
+  const { context } = createHarness([]);
+  const demo = context.demoGoals();
+
+  assert.equal(demo.some((g) => g.goalType === "active" && !g.achievedAt), true);
+  assert.equal(demo.some((g) => g.goalType === "small" && !g.achievedAt), true);
+  assert.equal(demo.some((g) => g.goalType === "future"), true);
+  assert.equal(demo.some((g) => g.achievedAt), true);
+});
+
+test("loadDemoGoals does not replace goals when confirmation is canceled", () => {
+  const { context, storage } = createHarness([
+    { id: "real", title: "Keep my real goal" },
+  ]);
+  context.confirmValue = false;
+
+  context.loadDemoGoals();
+
+  const saved = JSON.parse(storage["achieve.goals.v1"]);
+  assert.equal(saved[0].title, "Keep my real goal");
+});
+
+test("loadDemoGoals replaces, saves, and renders demo goals after confirmation", () => {
+  const { context, elements, storage } = createHarness([
+    { id: "old", title: "Replace this goal" },
+  ]);
+  context.confirmValue = true;
+
+  context.loadDemoGoals();
+
+  const saved = JSON.parse(storage["achieve.goals.v1"]);
+  assert.notEqual(saved[0].title, "Replace this goal");
+  assert.equal(saved.some((g) => g.title.includes("Marcus gets 3 paying tutoring students")), true);
+  assert.match(elements.activeList.innerHTML, /Marcus gets 3 paying tutoring students/);
+  assert.match(elements.smallList.innerHTML, /Practice the trial-call script/);
+  assert.match(elements.futureList.innerHTML, /mini course/);
+  assert.match(elements.doneWrap.innerHTML, /first paying tutoring student/);
 });

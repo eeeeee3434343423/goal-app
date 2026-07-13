@@ -91,9 +91,11 @@
       <button onclick="exportGoals()">Export</button>
       <button onclick="document.getElementById('importFile').click()">Import</button>
       <input type="file" id="importFile" accept=".json" style="display:none" onchange="importGoals(this)">
+      <button onclick="loadDemoGoals()">Load demo</button>
       <button onclick="openForm(null, 'small')">Small goal</button>
       <button class="secondary" onclick="openForm(null, 'future')">Future idea</button>
       <button class="primary" onclick="openForm(null, 'active')">New goal</button>
+      <span id="saveStatus" class="sub" style="align-self:center">Saved locally</span>
     </div>
   </header>
   <div class="banner" id="banner" style="display:none"></div>
@@ -180,6 +182,15 @@ var editId = null;
 var formMode = "active";
 var smallGoalsGoalId = null;
 var lockedEditMode = null;
+var FIREBASE_CONFIG = {
+  apiKey: "AIzaSyDEhzShKBA9mcyRchGC4XqUNL-6tzrK0sM",
+  authDomain: "joel-command-center.firebaseapp.com",
+  projectId: "joel-command-center",
+  storageBucket: "joel-command-center.firebasestorage.app",
+  messagingSenderId: "528993024688",
+  appId: "1:528993024688:web:361c69df509c475e569975"
+};
+var cloudSave = { ready: false, loading: false, docRef: null, setDoc: null, getDoc: null, serverTimestamp: null };
 
 function esc(s){ return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
 function uid(){ return "g" + Date.now() + Math.floor(Math.random() * 10000); }
@@ -273,7 +284,154 @@ function load(){
   try { goals = (JSON.parse(localStorage.getItem(KEY)) || []).map(normalize); }
   catch(e){ goals = []; }
 }
-function save(){ if (!DEMO) try { localStorage.setItem(KEY, JSON.stringify(goals)); } catch(e){} render(); }
+function storedGoals(){ return goals.map(normalize); }
+function setSaveStatus(text){
+  var el = document.getElementById("saveStatus");
+  if (el) el.textContent = text;
+}
+function saveLocalGoals(){
+  if (DEMO) return;
+  try { localStorage.setItem(KEY, JSON.stringify(storedGoals())); setSaveStatus("Saved locally"); }
+  catch(e){ setSaveStatus("Local save failed"); }
+}
+function save(){
+  saveLocalGoals();
+  render();
+  saveCloudGoals();
+}
+function hasFirebaseConfig(){
+  return !!(FIREBASE_CONFIG && FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.projectId && FIREBASE_CONFIG.appId);
+}
+async function initCloudSave(){
+  if (DEMO || !hasFirebaseConfig()) return;
+  setSaveStatus("Connecting cloud...");
+  try {
+    var appMod = await import("https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js");
+    var authMod = await import("https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js");
+    var fireMod = await import("https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js");
+    var app = appMod.initializeApp(FIREBASE_CONFIG);
+    var auth = authMod.getAuth(app);
+    var credential = await authMod.signInAnonymously(auth);
+    var db = fireMod.getFirestore(app);
+    cloudSave.docRef = fireMod.doc(db, "goalAppUsers", credential.user.uid);
+    cloudSave.setDoc = fireMod.setDoc;
+    cloudSave.getDoc = fireMod.getDoc;
+    cloudSave.serverTimestamp = fireMod.serverTimestamp;
+    cloudSave.ready = true;
+    var cloudGoals = await loadCloudGoals();
+    if (cloudGoals && cloudGoals.length){
+      goals = cloudGoals.map(normalize);
+      saveLocalGoals();
+      render();
+      setSaveStatus("Cloud loaded");
+    } else if (goals.length){
+      await saveCloudGoals();
+    } else {
+      setSaveStatus("Cloud ready");
+    }
+  } catch(e){
+    cloudSave.ready = false;
+    setSaveStatus("Cloud unavailable");
+  }
+}
+async function loadCloudGoals(){
+  if (!cloudSave.ready || !cloudSave.docRef || !cloudSave.getDoc) return null;
+  var snap = await cloudSave.getDoc(cloudSave.docRef);
+  if (!snap.exists()) return null;
+  var data = snap.data() || {};
+  return Array.isArray(data.goals) ? data.goals.map(normalize) : null;
+}
+async function saveCloudGoals(){
+  if (!cloudSave.ready || !cloudSave.docRef || !cloudSave.setDoc) return;
+  try {
+    await cloudSave.setDoc(cloudSave.docRef, { goals: storedGoals(), updatedAt: cloudSave.serverTimestamp ? cloudSave.serverTimestamp() : Date.now() }, { merge: true });
+    setSaveStatus("Cloud saved");
+  } catch(e){
+    setSaveStatus("Cloud unavailable");
+  }
+}
+function demoGoals(){
+  var now = Date.now();
+  var day = 86400000;
+  return [
+    normalize({
+      id: "demo-active-launch",
+      title: "Marcus gets 3 paying tutoring students by September 1",
+      mdp: true,
+      why: "Build proof that a simple skill-based offer can create real monthly income.",
+      deadline: "2026-09-01",
+      start: "No paid students yet, but Marcus has a clear subject and two hours most evenings.",
+      obstacles: "Fear of outreach; unclear offer; no landing page yet.",
+      skills: "Offer writing, simple sales calls, consistent follow-up.",
+      milestones: [
+        { text: "Write the tutoring offer", done: true },
+        { text: "Publish a simple landing page", done: true },
+        { text: "Message 30 parents or students", done: false },
+        { text: "Book 5 trial calls", done: false },
+        { text: "Get 3 paying students", done: false }
+      ],
+      smallGoals: [
+        { id: "demo-child-1", text: "Send 5 outreach messages", done: true, createdAt: now - 4 * day, completedAt: now - 4 * day },
+        { id: "demo-child-2", text: "Rewrite the offer headline", done: true, createdAt: now - 3 * day, completedAt: now - 3 * day },
+        { id: "demo-child-3", text: "Follow up with 3 warm leads", done: false, createdAt: now - day, completedAt: null }
+      ],
+      createdAt: now - 14 * day
+    }),
+    normalize({
+      id: "demo-small-script",
+      title: "Practice the trial-call script",
+      goalType: "small",
+      targetDate: todayInputValue(),
+      description: "One-day focused practice so the first calls feel calm and clear.",
+      timerSessions: [
+        { id: "demo-time-1", minutes: 30, startedAt: now - 3 * 3600000, completedAt: now - 2.5 * 3600000 },
+        { id: "demo-time-2", minutes: 60, startedAt: now - 2 * 3600000, completedAt: now - 3600000 }
+      ],
+      createdAt: now - day
+    }),
+    normalize({
+      id: "demo-small-outreach",
+      title: "Send 5 outreach messages",
+      goalType: "small",
+      targetDate: todayInputValue(),
+      description: "A quick win that creates real conversations instead of just planning.",
+      timerSessions: [{ id: "demo-time-3", minutes: 30, startedAt: now - 7200000, completedAt: now - 5400000 }],
+      createdAt: now - day
+    }),
+    normalize({
+      id: "demo-future-course",
+      title: "Turn tutoring lessons into a mini course",
+      goalType: "future",
+      futureMonth: "2026-11",
+      description: "Save this until the first tutoring offer is working."
+    }),
+    normalize({
+      id: "demo-future-youtube",
+      title: "Start a weekly study tips channel",
+      goalType: "future",
+      futureMonth: "2027-01",
+      description: "A future marketing idea after the offer and student results are proven."
+    }),
+    normalize({
+      id: "demo-win-first-student",
+      title: "Win the first paying tutoring student",
+      goalType: "small",
+      targetDate: "2026-08-01",
+      description: "Marcus followed up, booked one call, and closed the first student.",
+      timerSessions: [
+        { id: "demo-time-win-1", minutes: 60, startedAt: now - 7 * day, completedAt: now - 7 * day + 3600000 },
+        { id: "demo-time-win-2", minutes: 30, startedAt: now - 6 * day, completedAt: now - 6 * day + 1800000 }
+      ],
+      createdAt: now - 8 * day,
+      achievedAt: now - 5 * day
+    })
+  ];
+}
+function loadDemoGoals(){
+  if (!confirm("Load the demo success example? This will replace the current goals in this browser.")) return;
+  goals = demoGoals();
+  save();
+}
 
 function progress(g){
   var items = (g.milestones || []).concat(g.smallGoals || []);
@@ -718,6 +876,7 @@ function importGoals(inp){
 
 load();
 render();
+if (!window.__SKIP_CLOUD_SAVE) initCloudSave();
 window.addEventListener("storage", function(ev){ if (ev && ev.key === KEY){ load(); render(); } });
 </script>
 </body>

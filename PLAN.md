@@ -167,6 +167,171 @@ No implementation code for this addendum will be changed until this plan is appr
 
 ---
 
+# Plan Addendum: In-App Demo Success Example
+
+## Refine
+Add a built-in demo example inside the app showing a person who successfully used Achieve, with realistic active goals, small goals, future ideas, timer sessions, and victories.
+
+## Files to Change
+1. `goal-app.html`
+   - Add a `Load demo` button in the header.
+   - Add `function demoGoals()` returning a realistic sample dataset for a person using the app successfully.
+   - Add `function loadDemoGoals()` that asks for confirmation before replacing current goals with demo goals.
+   - Demo should include:
+     - One active Major Definite Purpose with milestones and child small goals.
+     - Several standalone one-day small goals with timer sessions.
+     - Future ideas.
+     - At least one victory/win with completed date and timer history.
+   - Save demo data through the existing `save()` path so local/Firebase persistence still works.
+
+2. `tests/goal-app.test.js`
+   - Add coverage that `demoGoals()` returns active, small, future, and achieved goals.
+   - Add coverage that `loadDemoGoals()` replaces current goals only after confirmation.
+   - Add coverage that demo goals normalize and render into the correct sections.
+
+3. `LEARNINGS.md`
+   - Append any lesson about keeping demo data explicit and confirmation-gated so it does not overwrite real user data by accident.
+
+## Interface / Function Signatures
+In `goal-app.html`:
+
+1. `function demoGoals()`
+   - Returns an array of normalized goal objects.
+
+2. `function loadDemoGoals()`
+   - Confirms with the user, replaces `goals`, saves, and renders.
+
+## Test Cases
+In `tests/goal-app.test.js`:
+
+1. Demo data includes at least one active, small, future, and achieved goal.
+2. `loadDemoGoals()` does not replace current goals when `confirm()` returns false.
+3. `loadDemoGoals()` replaces and saves when `confirm()` returns true.
+4. Demo render places records in Active, Small Goals, Future Ideas, and Victories sections.
+
+## Verification Commands
+Run after implementation:
+
+1. `node --test tests/goal-app.test.js`
+2. `node --check tests/goal-app.test.js`
+3. Extract and parse the `goal-app.html` browser script with Node.
+
+## Stop Point
+No implementation code for this addendum will be changed until this plan is approved.
+
+---
+
+# Plan Addendum: Firebase Cloud Save
+
+## Refine
+Add Firebase-backed cloud saving so goal data persists beyond one browser/device, while keeping localStorage as a fallback and preserving existing import/export behavior.
+
+## Required User Input Before Implementation
+1. Firebase web app config object:
+   - `apiKey`
+   - `authDomain`
+   - `projectId`
+   - `appId`
+   - plus any other Firebase fields shown in the Firebase console.
+2. Confirmation that anonymous sign-in is enabled in Firebase Authentication.
+3. Confirmation that Firestore is enabled.
+
+## Files to Change
+1. `goal-app.html`
+   - Add Firebase SDK imports from Google-hosted Firebase modules.
+   - Add a `FIREBASE_CONFIG` placeholder block.
+   - Add anonymous authentication.
+   - Add Firestore storage for the current anonymous user:
+     - Collection: `goalAppUsers`
+     - Document ID: Firebase `uid`
+     - Data shape: `{ goals: [...], updatedAt: serverTimestamp() }`
+   - Replace `load()` / `save()` with a sync-aware flow:
+     - Load localStorage immediately for fast startup.
+     - If Firebase initializes, sign in anonymously.
+     - Load the user document from Firestore.
+     - If Firestore has goals, normalize and render them.
+     - If Firestore is empty but localStorage has goals, upload local goals.
+     - Every save writes to localStorage and then attempts Firestore.
+   - Add small status text in the header or banner:
+     - `Saved locally`
+     - `Cloud saved`
+     - `Cloud unavailable`
+   - Keep export/import array-based and compatible.
+   - Do not remove localStorage fallback.
+
+2. `tests/goal-app.test.js`
+   - Keep current offline tests passing.
+   - Add tests for fallback save behavior if Firebase is unavailable by stubbing cloud helpers.
+   - Add tests that `save()` still updates localStorage before attempting cloud save.
+   - Add tests that cloud-loaded goals are normalized.
+
+3. `LEARNINGS.md`
+   - Append any implementation lesson around cloud sync and preserving offline fallback.
+
+## Interface / Function Signatures
+In `goal-app.html`:
+
+1. `function hasFirebaseConfig()`
+   - Returns true only when Firebase config is filled in.
+
+2. `async function initCloudSave()`
+   - Initializes Firebase app, anonymous auth, and Firestore if config exists.
+   - Leaves the app usable offline if anything fails.
+
+3. `async function loadCloudGoals()`
+   - Loads `{ goals }` from Firestore for the signed-in anonymous user.
+   - Returns `null` if unavailable or empty.
+
+4. `async function saveCloudGoals()`
+   - Writes the current normalized `goals` array to Firestore.
+   - Does not block local save/render.
+
+5. `function setSaveStatus(text)`
+   - Updates visible save status.
+
+6. Existing `load()` and `save()`
+   - Continue supporting localStorage.
+   - Delegate cloud sync through the new helpers.
+
+## Firestore Rules Required
+Use rules that allow each signed-in anonymous user to read/write only their own document:
+
+```text
+match /goalAppUsers/{userId} {
+  allow read, write: if request.auth != null && request.auth.uid == userId;
+}
+```
+
+## Test Cases
+In `tests/goal-app.test.js`:
+
+1. `save()` writes to localStorage when Firebase is unavailable.
+2. `save()` does not throw if cloud saving fails.
+3. Cloud-loaded goal arrays are normalized.
+4. Export/import remains array-based.
+5. Existing localStorage-only tests still pass.
+
+## Verification Commands
+Run after implementation:
+
+1. `node --test tests/goal-app.test.js`
+2. `node --check tests/goal-app.test.js`
+3. Extract and parse the `goal-app.html` browser script with Node.
+4. Manual browser check after Firebase config is supplied:
+   - Create a small goal.
+   - Refresh page.
+   - Confirm it reloads.
+   - Open in another browser/device after deployment.
+   - Confirm data appears for the same anonymous user only if same browser profile is used; for cross-device persistence, upgrade to email/Google sign-in later.
+
+## Important Note
+Anonymous Firebase auth persists per browser profile. It will save across reloads and deployments, but it will not automatically identify the same person across different devices. Cross-device sync requires a real sign-in method such as Google or email/password.
+
+## Stop Point
+No implementation code for this addendum will be changed until this plan is approved and the Firebase config is provided.
+
+---
+
 # Plan Addendum: Vercel Root Page Fix
 
 ## Refine
