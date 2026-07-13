@@ -167,6 +167,37 @@ No implementation code for this addendum will be changed until this plan is appr
 
 ---
 
+# Plan Addendum: Vercel Root Page Fix
+
+## Refine
+Fix the Vercel `404: NOT_FOUND` on the root website URL by adding a root `index.html` entry point for the static app.
+
+## Files to Change
+1. `index.html`
+   - Add a root page that redirects immediately to `goal-app.html`.
+   - Include a plain link fallback to `goal-app.html` for browsers or hosts that do not follow the redirect.
+   - Keep `goal-app.html` as the source app file to avoid duplicating the full app.
+
+2. `tests/goal-app.test.js`
+   - No change needed unless redirect behavior is tested separately.
+
+## Interface / Behavior
+1. Visiting `/` on Vercel should load `index.html`.
+2. `index.html` should send users to `/goal-app.html`.
+3. Visiting `/goal-app.html` should continue to open the app directly.
+
+## Verification Commands
+Run after implementation:
+
+1. `node --test tests/goal-app.test.js`
+2. `node --check tests/goal-app.test.js`
+3. Confirm `index.html` exists at the repo root.
+
+## Stop Point
+No implementation code for this addendum will be changed until this plan is approved.
+
+---
+
 # Plan Addendum: Small Goal Timer Sessions
 
 ## Refine
