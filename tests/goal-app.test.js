@@ -156,7 +156,7 @@ test("save falls back to localStorage when Firebase is unavailable", () => {
 
   const saved = JSON.parse(storage["achieve.goals.v1"]);
   assert.equal(saved[0].title, "Local fallback");
-  assert.equal(elements.saveStatus.textContent, "Saved locally");
+  assert.equal(elements.saveStatus.textContent, "Cloud: sign in - saved here");
 });
 
 test("normalization preserves current exported milestone-only data", () => {
@@ -809,8 +809,8 @@ test("save writes localStorage before cloud save", async () => {
   ]);
   let cloudCalled = false;
   context.cloudSave.ready = true;
+  context.cloudSave.user = { displayName: "Joel" };
   context.cloudSave.docRef = {};
-  context.cloudSave.serverTimestamp = () => "server-time";
   context.cloudSave.setDoc = async () => { cloudCalled = true; };
 
   context.goals[0].title = "Saved locally first";
@@ -820,7 +820,7 @@ test("save writes localStorage before cloud save", async () => {
   const saved = JSON.parse(storage["achieve.goals.v1"]);
   assert.equal(saved[0].title, "Saved locally first");
   assert.equal(cloudCalled, true);
-  assert.equal(elements.saveStatus.textContent, "Cloud saved");
+  assert.match(elements.saveStatus.textContent, /^Cloud: synced Joel/);
 });
 
 test("save does not throw when cloud save fails", async () => {
@@ -828,6 +828,7 @@ test("save does not throw when cloud save fails", async () => {
     { id: "small", title: "Small", goalType: "small" },
   ]);
   context.cloudSave.ready = true;
+  context.cloudSave.user = { displayName: "Joel" };
   context.cloudSave.docRef = {};
   context.cloudSave.setDoc = async () => { throw new Error("offline"); };
 
@@ -836,7 +837,7 @@ test("save does not throw when cloud save fails", async () => {
 
   const saved = JSON.parse(storage["achieve.goals.v1"]);
   assert.equal(saved[0].title, "Small");
-  assert.equal(elements.saveStatus.textContent, "Cloud unavailable");
+  assert.equal(elements.saveStatus.textContent, "Cloud unavailable - saved here");
 });
 
 test("loadCloudGoals normalizes cloud-loaded arrays", async () => {
@@ -845,7 +846,7 @@ test("loadCloudGoals normalizes cloud-loaded arrays", async () => {
   context.cloudSave.docRef = {};
   context.cloudSave.getDoc = async () => ({
     exists: () => true,
-    data: () => ({ goals: [{ id: "future", type: "future", title: "Later", desc: "Cloud", estimatedMonth: "2028-05" }] }),
+    data: () => ({ value: JSON.stringify([{ id: "future", type: "future", title: "Later", desc: "Cloud", estimatedMonth: "2028-05" }]) }),
   });
 
   const loaded = await context.loadCloudGoals();

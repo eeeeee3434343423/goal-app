@@ -101,7 +101,7 @@
       <button onclick="openForm(null, 'small')">Small goal</button>
       <button class="secondary" onclick="openForm(null, 'future')">Future idea</button>
       <button class="primary" onclick="openForm(null, 'active')">New goal</button>
-      <span id="saveStatus" class="sub" style="align-self:center">Saved locally</span>
+      <button id="saveStatus" class="sub" style="align-self:center;border:1px solid var(--border);background:var(--card);border-radius:8px;padding:7px 10px;cursor:pointer" onclick="syncClick()" title="Cross-device sync">Cloud: sign in</button>
     </div>
   </header>
   <div class="banner" id="banner" style="display:none"></div>
@@ -217,7 +217,9 @@ var FIREBASE_CONFIG = {
   messagingSenderId: "528993024688",
   appId: "1:528993024688:web:361c69df509c475e569975"
 };
-var cloudSave = { ready: false, loading: false, docRef: null, setDoc: null, getDoc: null, serverTimestamp: null };
+var SYNC_UPDATED_KEY = "achieve.goals.sync.updatedAt";
+var applyingCloud = false;
+var cloudSave = { ready: false, user: null, auth: null, authMod: null, docRef: null, setDoc: null, getDoc: null, onSnapshot: null, unsubscribe: null };
 
 function esc(s){ return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
 function uid(){ return "g" + Date.now() + Math.floor(Math.random() * 10000); }
@@ -339,13 +341,33 @@ function load(){
   catch(e){ goals = []; }
 }
 function storedGoals(){ return goals.map(normalize); }
+function goalPayloadEmpty(value){
+  if (value === null || value === undefined || value === "") return true;
+  try { var parsed = JSON.parse(value); return !Array.isArray(parsed) || parsed.length === 0; }
+  catch(e){ return true; }
+}
+function resolveGoalInitialSync(local, remote){
+  local = local && typeof local === "object" ? local : { value: null, updatedAt: 0 };
+  remote = remote && typeof remote === "object" ? remote : { value: null, updatedAt: 0 };
+  var le = goalPayloadEmpty(local.value), re = goalPayloadEmpty(remote.value);
+  if (le && re) return { source: "none", envelope: null };
+  if (!le && re) return { source: "local", envelope: local };
+  if (le && !re) return { source: "remote", envelope: remote };
+  if (local.value === remote.value) return { source: "equal", envelope: local.updatedAt >= remote.updatedAt ? local : remote };
+  if (!local.updatedAt) return { source: "local", envelope: { value: local.value, updatedAt: Date.now() } };
+  return local.updatedAt >= remote.updatedAt ? { source: "local", envelope: local } : { source: "remote", envelope: remote };
+}
 function setSaveStatus(text){
   var el = document.getElementById("saveStatus");
   if (el) el.textContent = text;
 }
 function saveLocalGoals(){
   if (DEMO) return;
-  try { localStorage.setItem(KEY, JSON.stringify(storedGoals())); setSaveStatus("Saved locally"); }
+  try {
+    localStorage.setItem(KEY, JSON.stringify(storedGoals()));
+    if (!applyingCloud) localStorage.setItem(SYNC_UPDATED_KEY, String(Date.now()));
+    setSaveStatus(cloudSave.user ? "Cloud: saving..." : "Cloud: sign in - saved here");
+  }
   catch(e){ setSaveStatus("Local save failed"); }
 }
 function save(){
@@ -358,31 +380,28 @@ function hasFirebaseConfig(){
 }
 async function initCloudSave(){
   if (DEMO || !hasFirebaseConfig()) return;
-  setSaveStatus("Connecting cloud...");
+  if (location.protocol === "file:") { setSaveStatus("Cloud: device only"); return; }
+  setSaveStatus("Cloud: connecting...");
   try {
     var appMod = await import("https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js");
     var authMod = await import("https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js");
     var fireMod = await import("https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js");
     var app = appMod.initializeApp(FIREBASE_CONFIG);
     var auth = authMod.getAuth(app);
-    var credential = await authMod.signInAnonymously(auth);
     var db = fireMod.getFirestore(app);
-    cloudSave.docRef = fireMod.doc(db, "goalAppUsers", credential.user.uid);
+    cloudSave.auth = auth;
+    cloudSave.authMod = authMod;
     cloudSave.setDoc = fireMod.setDoc;
     cloudSave.getDoc = fireMod.getDoc;
-    cloudSave.serverTimestamp = fireMod.serverTimestamp;
+    cloudSave.onSnapshot = fireMod.onSnapshot;
     cloudSave.ready = true;
-    var cloudGoals = await loadCloudGoals();
-    if (cloudGoals && cloudGoals.length){
-      goals = cloudGoals.map(normalize);
-      saveLocalGoals();
-      render();
-      setSaveStatus("Cloud loaded");
-    } else if (goals.length){
-      await saveCloudGoals();
-    } else {
-      setSaveStatus("Cloud ready");
-    }
+    authMod.onAuthStateChanged(auth, async function(user){
+      cloudSave.user = user;
+      if (cloudSave.unsubscribe) { cloudSave.unsubscribe(); cloudSave.unsubscribe = null; }
+      if (!user) { cloudSave.docRef = null; setSaveStatus("Cloud: sign in - saved here"); return; }
+      cloudSave.docRef = fireMod.doc(db, "users", user.uid, "appdata", KEY);
+      await startGoalSync();
+    });
   } catch(e){
     cloudSave.ready = false;
     setSaveStatus("Cloud unavailable");
@@ -393,16 +412,69 @@ async function loadCloudGoals(){
   var snap = await cloudSave.getDoc(cloudSave.docRef);
   if (!snap.exists()) return null;
   var data = snap.data() || {};
-  return Array.isArray(data.goals) ? data.goals.map(normalize) : null;
+  if (goalPayloadEmpty(data.value)) return null;
+  try { return JSON.parse(data.value).map(normalize); } catch(e){ return null; }
 }
 async function saveCloudGoals(){
-  if (!cloudSave.ready || !cloudSave.docRef || !cloudSave.setDoc) return;
+  if (!cloudSave.ready || !cloudSave.user || !cloudSave.docRef || !cloudSave.setDoc) return;
   try {
-    await cloudSave.setDoc(cloudSave.docRef, { goals: storedGoals(), updatedAt: cloudSave.serverTimestamp ? cloudSave.serverTimestamp() : Date.now() }, { merge: true });
-    setSaveStatus("Cloud saved");
+    var updatedAt = Number(localStorage.getItem(SYNC_UPDATED_KEY)) || Date.now();
+    var value = JSON.stringify(storedGoals());
+    if (goalPayloadEmpty(value)) return;
+    var device = typeof navigator !== "undefined" && navigator.userAgent ? navigator.userAgent.slice(0, 80) : "unknown";
+    await cloudSave.setDoc(cloudSave.docRef, { value: value, updatedAt: updatedAt, device: device }, { merge: true });
+    var who = (cloudSave.user.displayName || cloudSave.user.email || "me").split(" ")[0];
+    setSaveStatus("Cloud: synced " + who + " " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
   } catch(e){
-    setSaveStatus("Cloud unavailable");
+    setSaveStatus("Cloud unavailable - saved here");
   }
+}
+async function startGoalSync(){
+  try {
+    var snap = await cloudSave.getDoc(cloudSave.docRef);
+    var data = snap.exists() ? (snap.data() || {}) : {};
+    var local = { value: localStorage.getItem(KEY), updatedAt: Number(localStorage.getItem(SYNC_UPDATED_KEY)) || 0 };
+    var remote = { value: typeof data.value === "string" ? data.value : null, updatedAt: Number(data.updatedAt) || 0 };
+    var result = resolveGoalInitialSync(local, remote);
+    if (result.source === "local") await saveCloudGoals();
+    else if (result.source === "remote") applyCloudEnvelope(result.envelope);
+    else setSaveStatus("Cloud: ready");
+    cloudSave.unsubscribe = cloudSave.onSnapshot(cloudSave.docRef, function(next){
+      if (!next.exists()) return;
+      var incoming = next.data() || {};
+      var currentAt = Number(localStorage.getItem(SYNC_UPDATED_KEY)) || 0;
+      if (typeof incoming.value === "string" && !goalPayloadEmpty(incoming.value) && Number(incoming.updatedAt) > currentAt)
+        applyCloudEnvelope({ value: incoming.value, updatedAt: Number(incoming.updatedAt) });
+    }, function(){ setSaveStatus("Cloud error - saved here"); });
+  } catch(e){ setSaveStatus("Cloud unavailable - saved here"); }
+}
+function applyCloudEnvelope(envelope){
+  if (!envelope || goalPayloadEmpty(envelope.value)) return;
+  try {
+    var parsed = JSON.parse(envelope.value);
+    if (!Array.isArray(parsed)) return;
+    applyingCloud = true;
+    goals = parsed.map(normalize);
+    localStorage.setItem(KEY, JSON.stringify(storedGoals()));
+    localStorage.setItem(SYNC_UPDATED_KEY, String(envelope.updatedAt || Date.now()));
+    applyingCloud = false;
+    render();
+    setSaveStatus("Cloud: loaded");
+  } catch(e){ applyingCloud = false; setSaveStatus("Cloud data invalid - kept local"); }
+}
+function syncClick(){
+  if (!cloudSave.ready || !cloudSave.authMod || !cloudSave.auth) return;
+  if (cloudSave.user){
+    if (confirm("Sign out of cloud sync on this device?")) cloudSave.authMod.signOut(cloudSave.auth);
+    return;
+  }
+  var provider = new cloudSave.authMod.GoogleAuthProvider();
+  var mobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "");
+  var signIn = mobile ? cloudSave.authMod.signInWithRedirect(cloudSave.auth, provider) : cloudSave.authMod.signInWithPopup(cloudSave.auth, provider);
+  signIn.catch(function(e){
+    if (e && e.code === "auth/unauthorized-domain") setSaveStatus("Cloud: authorize " + location.hostname);
+    else if (!e || e.code !== "auth/popup-closed-by-user") setSaveStatus("Cloud: sign-in failed");
+  });
 }
 function demoGoals(){
   var now = Date.now();

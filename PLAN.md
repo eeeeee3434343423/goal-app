@@ -786,3 +786,21 @@ Run after implementation:
 
 ## Stop Point
 No implementation code for this addendum will be changed until this plan is approved.
+
+---
+
+# Goal App Cross-Device Sync - Staged Replacement
+
+## Approved Scope
+1. Replace anonymous authentication with Google sign-in.
+2. Preserve `achieve.goals.v1` local storage, import/export, and every current goal feature.
+3. Store the same serialized value Hub reads at `users/{uid}/appdata/achieve.goals.v1`.
+4. Resolve first sync with timestamps and never let empty device data erase populated cloud goals.
+5. Show actionable sign-in, local fallback, loading, synced-time, and error states.
+
+## Verification
+1. [done] Existing Goal App suite updated and green.
+2. [done] New deterministic conflict tests green.
+3. [done] Embedded JavaScript syntax check.
+4. [pending] Copy to the separate Goal App repository and verify hosted Google sign-in after deployment.
+

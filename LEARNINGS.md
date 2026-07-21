@@ -13,3 +13,8 @@
 - Daily repeatable goals should record completion events instead of using `achievedAt`; focus limits should split overflow into visible next sections so limiting today's work never hides or deletes saved goals.
 - Page-like tabs should share one view state and one visibility helper. Duplicate `setView` implementations can make tests pass the wrong hidden state while the browser shows a different section.
 - Daily repeatable goals work better as their own tracker view: keep completion events removable by ID so mistaken wins can be corrected without touching the daily goal itself.
+
+
+- Anonymous Firebase identities cannot provide cross-device ownership; Google authentication must establish the shared UID first.
+- Goal App and Hub must use the same Firestore document shape (`value`, `updatedAt`, `device`) as well as the same path.
+- Legacy local goals lack sync timestamps. Preserve them on first sign-in and upload them rather than silently replacing them.
