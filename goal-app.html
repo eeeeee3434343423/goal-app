@@ -549,11 +549,11 @@ function syncClick(){
     return;
   }
   var provider = new cloudSave.authMod.GoogleAuthProvider();
-  var mobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "");
-  var signIn = mobile ? cloudSave.authMod.signInWithRedirect(cloudSave.auth, provider) : cloudSave.authMod.signInWithPopup(cloudSave.auth, provider);
+  var signIn = cloudSave.authMod.signInWithPopup(cloudSave.auth, provider);
   signIn.catch(function(e){
     if (e && e.code === "auth/unauthorized-domain") setSaveStatus("Cloud: authorize " + location.hostname);
-    else if (!e || e.code !== "auth/popup-closed-by-user") setSaveStatus("Cloud: sign-in failed");
+    else if (e && e.code === "auth/popup-blocked") setSaveStatus("Cloud: allow pop-ups, then retry");
+    else if (!e || (e.code !== "auth/popup-closed-by-user" && e.code !== "auth/cancelled-popup-request")) setSaveStatus("Cloud: sign-in failed");
   });
 }
 function demoGoals(){

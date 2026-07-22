@@ -6,6 +6,13 @@ const vm = require("node:vm");
 
 const htmlPath = path.join(__dirname, "..", "goal-app.html");
 
+test("mobile sign-in uses popup instead of cross-domain redirect", () => {
+  const html = fs.readFileSync(htmlPath, "utf8");
+  assert.match(html, /signInWithPopup\(cloudSave\.auth, provider\)/);
+  assert.doesNotMatch(html, /signInWithRedirect\(cloudSave\.auth, provider\)/);
+  assert.match(html, /auth\/popup-blocked/);
+});
+
 function extractScript() {
   const html = fs.readFileSync(htmlPath, "utf8");
   const match = html.match(/<script>([\s\S]*)<\/script>/);
