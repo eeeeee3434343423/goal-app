@@ -174,6 +174,31 @@
       <textarea id="fMilestones" placeholder="First milestone&#10;Second milestone&#10;Third milestone" style="min-height:90px"></textarea>
       <div class="step">8 - Small goals <small>one per line; concrete next actions</small></div>
       <textarea id="fSmallGoals" placeholder="Email one potential customer&#10;Spend 25 minutes on the draft&#10;Publish the first version" style="min-height:90px"></textarea>
+      <div class="step">9 - Evidence log <small>one concrete proof of progress per line</small></div>
+      <textarea id="fEvidenceLog" placeholder="Asked for feedback&#10;Shipped the first draft"></textarea>
+      <div class="step">10 - Experiment <small>turn assumptions into a measurable test</small></div>
+      <input id="fExperimentHypothesis" placeholder="Hypothesis - what do I expect?">
+      <textarea id="fExperimentMethod" placeholder="Method - what will I try?"></textarea>
+      <input id="fExperimentMeasurement" placeholder="Measurement - what result will I track?">
+      <textarea id="fExperimentDecision" placeholder="Decision rule - continue, change, or stop when..."></textarea>
+      <div class="step">11 - Weakest-point drill <small>practice the bottleneck directly</small></div>
+      <input id="fWeakestPoint" placeholder="Current weakest point">
+      <textarea id="fWeakestPointDrill" placeholder="Focused drill for that weak point"></textarea>
+      <div class="step">12 - Feedback loop <small>compare expectations with reality and correct course</small></div>
+      <textarea id="fFeedbackExpected" placeholder="Expected result"></textarea>
+      <textarea id="fFeedbackActual" placeholder="Actual result"></textarea>
+      <textarea id="fFeedbackCorrection" placeholder="Correction for the next attempt"></textarea>
+      <div class="step">13 - Identity and evidence <small>name the person you are becoming and prove it</small></div>
+      <input id="fIdentityStatement" placeholder="I am becoming someone who...">
+      <textarea id="fIdentityEvidence" placeholder="Evidence that this identity is already true"></textarea>
+      <div class="step">14 - Thought-to-fact reframe <small>separate the story from observable reality</small></div>
+      <textarea id="fThought" placeholder="Automatic thought"></textarea>
+      <textarea id="fFact" placeholder="Observable fact"></textarea>
+      <textarea id="fReframe" placeholder="Useful, reality-based reframe"></textarea>
+      <div class="step">15 - Recovery protocol <small>decide how you restart before a setback happens</small></div>
+      <input id="fRecoveryTrigger" placeholder="Trigger - when I slip or get stuck...">
+      <textarea id="fRecoveryReset" placeholder="Reset action"></textarea>
+      <textarea id="fRecoveryNextStep" placeholder="Smallest next step back into motion"></textarea>
     </div>
 
     <div class="modal-btns">
@@ -225,6 +250,15 @@ var cloudSave = { ready: false, user: null, auth: null, authMod: null, docRef: n
 
 function esc(s){ return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
 function uid(){ return "g" + Date.now() + Math.floor(Math.random() * 10000); }
+function safeId(value, prefix, used){
+  var candidate = typeof value === "string" && /^[A-Za-z0-9_-]+$/.test(value) ? value : "";
+  if (!candidate || (used && used[candidate])){
+    do { candidate = (prefix || "g") + Date.now() + Math.floor(Math.random() * 1000000); }
+    while (used && used[candidate]);
+  }
+  if (used) used[candidate] = true;
+  return candidate;
+}
 function todayInputValue(){
   var d = new Date();
   return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
@@ -238,25 +272,28 @@ function normalizeChecklist(items){
   var list = Array.isArray(items) ? items : [];
   return list.map(function(item){
     if (typeof item === "string") return { text: item, done: false };
+    if (!item || typeof item !== "object") return null;
     return { text: item.text || item.name || item.title || "", done: !!(item.done || item.completed) };
-  }).filter(function(item){ return item.text; });
+  }).filter(function(item){ return item && item.text; });
 }
 function normalizeSmallGoals(items){
   var list = Array.isArray(items) ? items : [];
+  var usedIds = {};
   return list.map(function(item){
     var now = Date.now();
     if (typeof item === "string"){
-      return { id: uid(), text: item, done: false, createdAt: now, completedAt: null };
+      return { id: safeId(null, "sg", usedIds), text: item, done: false, createdAt: now, completedAt: null };
     }
+    if (!item || typeof item !== "object") return null;
     var done = !!(item.done || item.completed);
     return {
-      id: item.id || uid(),
+      id: safeId(item.id, "sg", usedIds),
       text: item.text || item.name || item.title || "",
       done: done,
       createdAt: item.createdAt || now,
       completedAt: item.completedAt || (done ? now : null)
     };
-  }).filter(function(item){ return item.text; });
+  }).filter(function(item){ return item && item.text; });
 }
 function normalizeTimerSessions(items){
   var list = Array.isArray(items) ? items : [];
@@ -287,6 +324,16 @@ function normalizeDailyCompletions(items){
     };
   });
 }
+function normalizeEvidenceLog(items){
+  var list = Array.isArray(items) ? items : [];
+  var usedIds = {};
+  return list.map(function(item){
+    var text = typeof item === "string" ? item : item && (item.text || item.note || item.evidence);
+    if (!text) return null;
+    return { id: safeId(typeof item === "object" && item ? item.id : null, "e", usedIds), text: String(text), createdAt: typeof item === "object" && item.createdAt ? item.createdAt : Date.now() };
+  }).filter(Boolean);
+}
+function textField(value){ return typeof value === "string" ? value : ""; }
 function normalizeGoalType(g){
   if (g.goalType === "future" || g.type === "future" || g.future === true) return "future";
   if (g.goalType === "small" || g.type === "small" || g.small === true) return "small";
@@ -295,14 +342,15 @@ function normalizeGoalType(g){
 }
 
 /* tolerant load - accepts older saved shapes */
-function normalize(g){
+function normalize(g, idState){
   g = g || {};
+  if (typeof g !== "object" || Array.isArray(g)) g = {};
   var goalType = normalizeGoalType(g);
   var description = g.description || g.desc || "";
   var why = g.why || g.benefits || "";
   if (goalType === "future" && !description) description = why;
-  return {
-    id: g.id || uid(),
+  return Object.assign({}, g, {
+    id: safeId(g.id, "g", idState && idState.goalIds),
     title: g.title || g.name || g.goal || "Untitled goal",
     goalType: goalType,
     futureMonth: g.futureMonth || g.estimatedMonth || g.estimateMonth || "",
@@ -324,11 +372,41 @@ function normalize(g){
     milestones: normalizeChecklist(g.milestones),
     smallGoals: normalizeSmallGoals(g.smallGoals || g.actions || g.tasks),
     timerSessions: normalizeTimerSessions(g.timerSessions),
+    evidenceLog: normalizeEvidenceLog(g.evidenceLog || g.evidence),
+    experiment: {
+      hypothesis: textField((g.experiment || {}).hypothesis || g.experimentHypothesis),
+      method: textField((g.experiment || {}).method || g.experimentMethod),
+      measurement: textField((g.experiment || {}).measurement || g.experimentMeasurement),
+      decision: textField((g.experiment || {}).decision || g.experimentDecision)
+    },
+    weakestPoint: textField(g.weakestPoint),
+    weakestPointDrill: textField(g.weakestPointDrill || g.drill),
+    feedback: {
+      expected: textField((g.feedback || {}).expected || g.expectedFeedback),
+      actual: textField((g.feedback || {}).actual || g.actualFeedback),
+      correction: textField((g.feedback || {}).correction || g.feedbackCorrection)
+    },
+    identityStatement: textField(g.identityStatement || g.identity),
+    identityEvidence: textField(g.identityEvidence || g.identityProof),
+    thoughtToFact: {
+      thought: textField((g.thoughtToFact || {}).thought || g.negativeThought),
+      fact: textField((g.thoughtToFact || {}).fact || g.objectiveFact),
+      reframe: textField((g.thoughtToFact || {}).reframe || g.thoughtReframe)
+    },
+    recoveryProtocol: {
+      trigger: textField((g.recoveryProtocol || g.recovery || {}).trigger),
+      reset: textField((g.recoveryProtocol || g.recovery || {}).reset || (g.recoveryProtocol || g.recovery || {}).resetAction),
+      nextStep: textField((g.recoveryProtocol || g.recovery || {}).nextStep)
+    },
     preAchieveMilestones: Array.isArray(g.preAchieveMilestones) ? g.preAchieveMilestones : null,
     preAchieveSmallGoals: Array.isArray(g.preAchieveSmallGoals) ? g.preAchieveSmallGoals : null,
     createdAt: g.createdAt || Date.now(),
     achievedAt: g.achievedAt || (g.achieved ? Date.now() : null)
-  };
+  });
+}
+function normalizeGoals(items){
+  var state = { goalIds: {} };
+  return (Array.isArray(items) ? items : []).map(function(item){ return normalize(item, state); });
 }
 function load(){
   if (DEMO){
@@ -339,10 +417,10 @@ function load(){
     ];
     return;
   }
-  try { goals = (JSON.parse(localStorage.getItem(KEY)) || []).map(normalize); }
+  try { goals = normalizeGoals(JSON.parse(localStorage.getItem(KEY)) || []); }
   catch(e){ goals = []; }
 }
-function storedGoals(){ return goals.map(normalize); }
+function storedGoals(){ return normalizeGoals(goals); }
 function goalPayloadEmpty(value){
   if (value === null || value === undefined || value === "") return true;
   try { var parsed = JSON.parse(value); return !Array.isArray(parsed) || parsed.length === 0; }
@@ -415,7 +493,7 @@ async function loadCloudGoals(){
   if (!snap.exists()) return null;
   var data = snap.data() || {};
   if (goalPayloadEmpty(data.value)) return null;
-  try { return JSON.parse(data.value).map(normalize); } catch(e){ return null; }
+  try { return normalizeGoals(JSON.parse(data.value)); } catch(e){ return null; }
 }
 async function saveCloudGoals(){
   if (!cloudSave.ready || !cloudSave.user || !cloudSave.docRef || !cloudSave.setDoc) return;
@@ -456,7 +534,7 @@ function applyCloudEnvelope(envelope){
     var parsed = JSON.parse(envelope.value);
     if (!Array.isArray(parsed)) return;
     applyingCloud = true;
-    goals = parsed.map(normalize);
+    goals = normalizeGoals(parsed);
     localStorage.setItem(KEY, JSON.stringify(storedGoals()));
     localStorage.setItem(SYNC_UPDATED_KEY, String(envelope.updatedAt || Date.now()));
     applyingCloud = false;
@@ -622,6 +700,33 @@ function moveGoalToToday(id){
 function focusControlsHtml(g){
   if (g.achievedAt || g.goalType === "future" || g.goalType === "daily") return "";
   return '<div class="small-summary"><div><b>Focus order</b><br><span>' + (g.deferredUntil ? 'Deferred until ' + esc(g.deferredUntil) : 'Available today') + '</span></div><div class="card-btns" style="position:static"><button onclick="reorderGoal(\'' + g.id + '\',-1)">Up</button><button onclick="reorderGoal(\'' + g.id + '\',1)">Down</button>' + (g.deferredUntil ? '<button onclick="moveGoalToToday(\'' + g.id + '\')">Today</button>' : '<button onclick="deferGoalToTomorrow(\'' + g.id + '\')">Tomorrow</button>') + '</div></div>';
+}
+function addEvidence(id, text){
+  var g = goals.find(function(x){ return x.id === id; });
+  text = String(text == null ? "" : text).trim();
+  if (!g || !text) return;
+  g.evidenceLog = g.evidenceLog || [];
+  g.evidenceLog.push({ id: uid(), text: text, createdAt: Date.now() });
+  save();
+}
+function practiceHtml(g){
+  var parts = [];
+  (g.evidenceLog || []).forEach(function(item){ parts.push('<div><b>Evidence:</b> ' + esc(item.text) + '</div>'); });
+  if (g.experiment.hypothesis) parts.push('<div><b>Hypothesis:</b> ' + esc(g.experiment.hypothesis) + '</div>');
+  if (g.experiment.method) parts.push('<div><b>Method:</b> ' + esc(g.experiment.method) + '</div>');
+  if (g.experiment.measurement) parts.push('<div><b>Measure:</b> ' + esc(g.experiment.measurement) + '</div>');
+  if (g.experiment.decision) parts.push('<div><b>Decision:</b> ' + esc(g.experiment.decision) + '</div>');
+  if (g.weakestPoint || g.weakestPointDrill) parts.push('<div><b>Weakest-point drill:</b> ' + esc(g.weakestPoint) + (g.weakestPoint && g.weakestPointDrill ? ' - ' : '') + esc(g.weakestPointDrill) + '</div>');
+  if (g.feedback.expected) parts.push('<div><b>Expected:</b> ' + esc(g.feedback.expected) + '</div>');
+  if (g.feedback.actual) parts.push('<div><b>Actual:</b> ' + esc(g.feedback.actual) + '</div>');
+  if (g.feedback.correction) parts.push('<div><b>Correction:</b> ' + esc(g.feedback.correction) + '</div>');
+  if (g.identityStatement) parts.push('<div><b>Identity:</b> ' + esc(g.identityStatement) + '</div>');
+  if (g.identityEvidence) parts.push('<div><b>Identity evidence:</b> ' + esc(g.identityEvidence) + '</div>');
+  if (g.thoughtToFact.thought) parts.push('<div><b>Thought:</b> ' + esc(g.thoughtToFact.thought) + '</div>');
+  if (g.thoughtToFact.fact) parts.push('<div><b>Fact:</b> ' + esc(g.thoughtToFact.fact) + '</div>');
+  if (g.thoughtToFact.reframe) parts.push('<div><b>Reframe:</b> ' + esc(g.thoughtToFact.reframe) + '</div>');
+  if (g.recoveryProtocol.trigger || g.recoveryProtocol.reset || g.recoveryProtocol.nextStep) parts.push('<div><b>Recovery:</b> ' + esc(g.recoveryProtocol.trigger) + (g.recoveryProtocol.reset ? ' / ' + esc(g.recoveryProtocol.reset) : '') + (g.recoveryProtocol.nextStep ? ' / Next: ' + esc(g.recoveryProtocol.nextStep) : '') + '</div>');
+  return parts.length ? '<div class="small-preview"><div class="list-title">Practice and feedback</div>' + parts.join("") + '</div>' : '';
 }
 function levelLabel(level){
   return level === "minimum" ? "Minimum" : level === "max" ? "Max" : "Standard";
@@ -826,6 +931,7 @@ function cardHtml(g){
     (p == null ? '' : '<div class="bar"><div style="width:' + p + '%"></div></div><div class="bar-row"><span>Progress</span><span>' + p + '%</span></div>') +
     focusControlsHtml(g) +
     ((g.milestones || []).length && !achieved ? '<div class="ms">' + checklistHtml(g, "milestones", "Milestone goals", "toggleMs") + '</div>' : '') +
+    (!achieved ? practiceHtml(g) : '') +
     (!achieved ? smallGoalsSummaryHtml(g) : '') +
   '</div>';
 }
@@ -1026,6 +1132,21 @@ function syncSmallGoalTextList(oldItems, textValue){
     return { id: uid(), text: text, done: false, createdAt: Date.now(), completedAt: null };
   });
 }
+function syncEvidenceTextList(oldItems, textValue){
+  var oldList = oldItems || [];
+  return textValue.split("\n").map(function(s){ return s.trim(); }).filter(Boolean).map(function(text){
+    var prev = oldList.find(function(item){ return item.text === text; });
+    return prev ? { id: prev.id, text: text, createdAt: prev.createdAt } : { id: uid(), text: text, createdAt: Date.now() };
+  });
+}
+function emptyAdvancedFields(){
+  return {
+    evidenceLog: [], experiment: { hypothesis: "", method: "", measurement: "", decision: "" },
+    weakestPoint: "", weakestPointDrill: "", feedback: { expected: "", actual: "", correction: "" },
+    identityStatement: "", identityEvidence: "", thoughtToFact: { thought: "", fact: "", reframe: "" },
+    recoveryProtocol: { trigger: "", reset: "", nextStep: "" }
+  };
+}
 
 /* ---- form ---- */
 function openForm(id, mode){
@@ -1052,6 +1173,24 @@ function openForm(id, mode){
   document.getElementById("fSkills").value = g ? g.skills : "";
   document.getElementById("fMilestones").value = g ? g.milestones.map(function(m){ return m.text; }).join("\n") : "";
   document.getElementById("fSmallGoals").value = g ? g.smallGoals.map(function(s){ return s.text; }).join("\n") : "";
+  document.getElementById("fEvidenceLog").value = g ? g.evidenceLog.map(function(item){ return item.text; }).join("\n") : "";
+  document.getElementById("fExperimentHypothesis").value = g ? g.experiment.hypothesis : "";
+  document.getElementById("fExperimentMethod").value = g ? g.experiment.method : "";
+  document.getElementById("fExperimentMeasurement").value = g ? g.experiment.measurement : "";
+  document.getElementById("fExperimentDecision").value = g ? g.experiment.decision : "";
+  document.getElementById("fWeakestPoint").value = g ? g.weakestPoint : "";
+  document.getElementById("fWeakestPointDrill").value = g ? g.weakestPointDrill : "";
+  document.getElementById("fFeedbackExpected").value = g ? g.feedback.expected : "";
+  document.getElementById("fFeedbackActual").value = g ? g.feedback.actual : "";
+  document.getElementById("fFeedbackCorrection").value = g ? g.feedback.correction : "";
+  document.getElementById("fIdentityStatement").value = g ? g.identityStatement : "";
+  document.getElementById("fIdentityEvidence").value = g ? g.identityEvidence : "";
+  document.getElementById("fThought").value = g ? g.thoughtToFact.thought : "";
+  document.getElementById("fFact").value = g ? g.thoughtToFact.fact : "";
+  document.getElementById("fReframe").value = g ? g.thoughtToFact.reframe : "";
+  document.getElementById("fRecoveryTrigger").value = g ? g.recoveryProtocol.trigger : "";
+  document.getElementById("fRecoveryReset").value = g ? g.recoveryProtocol.reset : "";
+  document.getElementById("fRecoveryNextStep").value = g ? g.recoveryProtocol.nextStep : "";
   document.getElementById("btnDelete").style.display = g ? "" : "none";
   document.getElementById("overlay").classList.add("open");
   window.scrollTo(0, 0);
@@ -1154,6 +1293,41 @@ function saveForm(){
       achievedAt: old ? old.achievedAt : null
     };
   }
+  g = Object.assign({}, old || {}, g);
+  var advanced = old ? {
+    evidenceLog: old.evidenceLog, experiment: old.experiment, weakestPoint: old.weakestPoint,
+    weakestPointDrill: old.weakestPointDrill, feedback: old.feedback, identityStatement: old.identityStatement,
+    identityEvidence: old.identityEvidence, thoughtToFact: old.thoughtToFact, recoveryProtocol: old.recoveryProtocol
+  } : emptyAdvancedFields();
+  if (formMode === "active") advanced = {
+    evidenceLog: syncEvidenceTextList(old ? old.evidenceLog : [], document.getElementById("fEvidenceLog").value),
+    experiment: {
+      hypothesis: document.getElementById("fExperimentHypothesis").value.trim(),
+      method: document.getElementById("fExperimentMethod").value.trim(),
+      measurement: document.getElementById("fExperimentMeasurement").value.trim(),
+      decision: document.getElementById("fExperimentDecision").value.trim()
+    },
+    weakestPoint: document.getElementById("fWeakestPoint").value.trim(),
+    weakestPointDrill: document.getElementById("fWeakestPointDrill").value.trim(),
+    feedback: {
+      expected: document.getElementById("fFeedbackExpected").value.trim(),
+      actual: document.getElementById("fFeedbackActual").value.trim(),
+      correction: document.getElementById("fFeedbackCorrection").value.trim()
+    },
+    identityStatement: document.getElementById("fIdentityStatement").value.trim(),
+    identityEvidence: document.getElementById("fIdentityEvidence").value.trim(),
+    thoughtToFact: {
+      thought: document.getElementById("fThought").value.trim(),
+      fact: document.getElementById("fFact").value.trim(),
+      reframe: document.getElementById("fReframe").value.trim()
+    },
+    recoveryProtocol: {
+      trigger: document.getElementById("fRecoveryTrigger").value.trim(),
+      reset: document.getElementById("fRecoveryReset").value.trim(),
+      nextStep: document.getElementById("fRecoveryNextStep").value.trim()
+    }
+  };
+  Object.keys(advanced).forEach(function(key){ g[key] = advanced[key]; });
   if (old) goals[goals.indexOf(old)] = g; else goals.push(g);
   save();
   closeForm();
@@ -1168,7 +1342,7 @@ function deleteGoal(){
 
 /* ---- export / import ---- */
 function exportGoals(){
-  var blob = new Blob([JSON.stringify(goals.map(normalize), null, 2)], { type: "application/json" });
+  var blob = new Blob([JSON.stringify(normalizeGoals(goals), null, 2)], { type: "application/json" });
   var a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = "achieve-goals-backup-" + new Date().toISOString().slice(0, 10) + ".json";
@@ -1182,7 +1356,7 @@ function importGoals(inp){
     try {
       var arr = JSON.parse(reader.result);
       if (!Array.isArray(arr)) throw new Error("bad format");
-      goals = arr.map(normalize);
+      goals = normalizeGoals(arr);
       save();
       alert("Imported " + goals.length + " goals.");
     } catch(e){ alert("Could not read that file. Make sure it is an Export from this app."); }

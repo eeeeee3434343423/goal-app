@@ -87,6 +87,24 @@ function createHarness(seedGoals = []) {
     "fSkills",
     "fMilestones",
     "fSmallGoals",
+    "fEvidenceLog",
+    "fExperimentHypothesis",
+    "fExperimentMethod",
+    "fExperimentMeasurement",
+    "fExperimentDecision",
+    "fWeakestPoint",
+    "fWeakestPointDrill",
+    "fFeedbackExpected",
+    "fFeedbackActual",
+    "fFeedbackCorrection",
+    "fIdentityStatement",
+    "fIdentityEvidence",
+    "fThought",
+    "fFact",
+    "fReframe",
+    "fRecoveryTrigger",
+    "fRecoveryReset",
+    "fRecoveryNextStep",
     "btnDelete",
     "saveButton",
     "importFile",
@@ -989,4 +1007,139 @@ test("loadDemoGoals replaces, saves, and renders demo goals after confirmation",
   assert.match(elements.smallList.innerHTML, /Practice the trial-call script/);
   assert.match(elements.futureList.innerHTML, /mini course/);
   assert.match(elements.doneWrap.innerHTML, /first paying tutoring student/);
+});
+
+test("advanced practice fields normalize into stable backward-compatible shapes", () => {
+  const { context } = createHarness([]);
+  const goal = context.normalize({
+    id: "advanced",
+    title: "Deliberate goal",
+    evidence: ["Asked for feedback", { id: "e2", text: "Shipped draft", createdAt: 42 }],
+    experiment: { hypothesis: "Short calls convert", method: "Run five calls", measurement: "Bookings", decision: "Continue" },
+    weakestPoint: "Opening question",
+    drill: "Practice ten openings",
+    expectedFeedback: "Three bookings",
+    actualFeedback: "One booking",
+    feedbackCorrection: "Rewrite opening",
+    identity: "I finish what I start",
+    identityProof: "Published twice",
+    negativeThought: "I always freeze",
+    objectiveFact: "I completed two calls",
+    thoughtReframe: "Practice makes the next call easier",
+    recovery: { trigger: "Missed day", reset: "Take a walk", nextStep: "Do five minutes" },
+  });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(goal.evidenceLog)).map((entry) => entry.text), ["Asked for feedback", "Shipped draft"]);
+  assert.equal(goal.experiment.measurement, "Bookings");
+  assert.equal(goal.weakestPointDrill, "Practice ten openings");
+  assert.equal(goal.feedback.actual, "One booking");
+  assert.equal(goal.identityStatement, "I finish what I start");
+  assert.equal(goal.identityEvidence, "Published twice");
+  assert.equal(goal.thoughtToFact.fact, "I completed two calls");
+  assert.equal(goal.recoveryProtocol.nextStep, "Do five minutes");
+});
+
+test("legacy goals receive empty advanced practice fields without losing old data", () => {
+  const { context } = createHarness([]);
+  const goal = context.normalize({ id: "legacy", title: "Legacy", why: "Keep this", milestones: ["First"] });
+
+  assert.equal(goal.why, "Keep this");
+  assert.equal(goal.milestones[0].text, "First");
+  assert.deepEqual(JSON.parse(JSON.stringify(goal.evidenceLog)), []);
+  assert.deepEqual(JSON.parse(JSON.stringify(goal.experiment)), { hypothesis: "", method: "", measurement: "", decision: "" });
+  assert.deepEqual(JSON.parse(JSON.stringify(goal.feedback)), { expected: "", actual: "", correction: "" });
+  assert.deepEqual(JSON.parse(JSON.stringify(goal.thoughtToFact)), { thought: "", fact: "", reframe: "" });
+  assert.deepEqual(JSON.parse(JSON.stringify(goal.recoveryProtocol)), { trigger: "", reset: "", nextStep: "" });
+});
+
+test("addEvidence records proof and preserves completion state", () => {
+  const { context, storage } = createHarness([{ id: "g1", title: "Goal", achievedAt: null }]);
+
+  context.addEvidence("g1", "Completed the hard rehearsal");
+  context.addEvidence("g1", "   ");
+
+  const saved = JSON.parse(storage["achieve.goals.v1"]);
+  assert.equal(saved[0].evidenceLog.length, 1);
+  assert.equal(saved[0].evidenceLog[0].text, "Completed the hard rehearsal");
+  assert.equal(typeof saved[0].evidenceLog[0].createdAt, "number");
+  assert.equal(saved[0].achievedAt, null);
+});
+
+test("advanced active fields save and safely render user-authored text", () => {
+  const { context, elements, storage } = createHarness([{ id: "g1", title: "Goal" }]);
+  context.openForm("g1");
+  elements.fEvidenceLog.value = "First proof\n<script>alert(1)</script>";
+  elements.fExperimentHypothesis.value = "A focused offer wins";
+  elements.fExperimentMethod.value = "Send five messages";
+  elements.fExperimentMeasurement.value = "Replies";
+  elements.fExperimentDecision.value = "Keep if two reply";
+  elements.fWeakestPoint.value = "Opening";
+  elements.fWeakestPointDrill.value = "Ten repetitions";
+  elements.fFeedbackExpected.value = "Two replies";
+  elements.fFeedbackActual.value = "One reply";
+  elements.fFeedbackCorrection.value = "Shorten message";
+  elements.fIdentityStatement.value = "I am a consistent builder";
+  elements.fIdentityEvidence.value = "I shipped yesterday";
+  elements.fThought.value = "Nobody will answer";
+  elements.fFact.value = "One person answered last week";
+  elements.fReframe.value = "Responses improve through testing";
+  elements.fRecoveryTrigger.value = "I miss a session";
+  elements.fRecoveryReset.value = "Breathe and review";
+  elements.fRecoveryNextStep.value = "Work for five minutes";
+  context.saveForm();
+
+  const saved = JSON.parse(storage["achieve.goals.v1"])[0];
+  assert.equal(saved.experiment.hypothesis, "A focused offer wins");
+  assert.equal(saved.weakestPointDrill, "Ten repetitions");
+  assert.equal(saved.feedback.correction, "Shorten message");
+  assert.equal(saved.identityStatement, "I am a consistent builder");
+  assert.equal(saved.thoughtToFact.reframe, "Responses improve through testing");
+  assert.equal(saved.recoveryProtocol.nextStep, "Work for five minutes");
+  assert.doesNotMatch(elements.activeList.innerHTML, /<script>alert\(1\)<\/script>/);
+  assert.match(elements.activeList.innerHTML, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+});
+
+test("malicious and duplicate imported IDs normalize to unique inline-handler-safe IDs", () => {
+  const { context, elements, storage } = createHarness([
+    { id: "x');alert(1);//", title: "Unsafe", smallGoals: [{ id: "s');alert(2);//", text: "First" }, { id: "s');alert(2);//", text: "Second" }] },
+    { id: "safe-id_2", title: "Safe" },
+    { id: "safe-id_2", title: "Duplicate" },
+  ]);
+
+  const savedGoals = context.goals;
+  assert.equal(new Set(savedGoals.map((goal) => goal.id)).size, 3);
+  savedGoals.forEach((goal) => assert.match(goal.id, /^[A-Za-z0-9_-]+$/));
+  savedGoals[0].smallGoals.forEach((item) => assert.match(item.id, /^[A-Za-z0-9_-]+$/));
+  assert.equal(new Set(savedGoals[0].smallGoals.map((item) => item.id)).size, 2);
+  assert.doesNotMatch(elements.activeList.innerHTML, /alert\(/);
+
+  context.save();
+  JSON.parse(storage["achieve.goals.v1"]).forEach((goal) => assert.match(goal.id, /^[A-Za-z0-9_-]+$/));
+});
+
+test("unknown top-level fields survive normalize and type-specific edit round trips", () => {
+  const { context, elements, storage } = createHarness([{ id: "g1", title: "Goal", pluginData: { source: "future-tool", score: 9 }, customFlag: true }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(context.goals[0].pluginData)), { source: "future-tool", score: 9 });
+
+  context.openForm("g1");
+  elements.fTitle.value = "Goal updated";
+  context.saveForm();
+
+  const saved = JSON.parse(storage["achieve.goals.v1"])[0];
+  assert.equal(saved.title, "Goal updated");
+  assert.deepEqual(saved.pluginData, { source: "future-tool", score: 9 });
+  assert.equal(saved.customFlag, true);
+});
+
+test("mixed valid and malformed child items retain valid milestones and small goals", () => {
+  const { context } = createHarness([]);
+  const goal = context.normalize({
+    id: "mixed",
+    title: "Mixed",
+    milestones: [null, { text: "Valid milestone", done: true }, 17, {}, "Second milestone"],
+    smallGoals: [null, { id: "valid-child", text: "Valid action", done: false }, false, {}, "Second action"],
+  });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(goal.milestones)).map((item) => item.text), ["Valid milestone", "Second milestone"]);
+  assert.deepEqual(JSON.parse(JSON.stringify(goal.smallGoals)).map((item) => item.text), ["Valid action", "Second action"]);
 });
