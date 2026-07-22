@@ -167,6 +167,78 @@ No implementation code for this addendum will be changed until this plan is appr
 
 ---
 
+# Plan Addendum: Small Goal Milestones
+
+## Refine
+Add milestone checkpoints to top-level Small Goals so each milestone counts as progress toward completing that small goal, similar to a regular active goal.
+
+## Files to Change
+1. `goal-app.html`
+   - Keep the existing `achieve.goals.v1` saved-data shape compatible.
+   - Reuse the existing `milestones: [{ text, done }]` field for `goalType: "small"` instead of introducing a new storage field.
+   - Add a milestone textarea to the Small Goal form mode:
+     - One milestone per line.
+     - Label: `Milestones`
+     - Helper text: `progress checkpoints for this small goal`.
+   - Update `openForm(id, mode)`:
+     - When editing a standalone small goal, fill the new small-goal milestone textarea from `g.milestones`.
+   - Update `saveForm()` for `formMode === "small"`:
+     - Save milestone lines with `syncTextList(old ? old.milestones : [], smallMilestoneTextarea.value)`.
+     - Preserve existing milestone done states when milestone text is unchanged.
+     - Preserve existing timer sessions and other small-goal fields.
+   - Update `smallCardHtml(g)`:
+     - Show a progress bar when the small goal has milestones.
+     - Render milestone checkboxes under the small goal card.
+     - Toggling milestones should use the existing `toggleMs(id, index)` path.
+   - Update `victoryCardHtml(g)` for `goalType === "small"`:
+     - Include milestone completion count in the win card, alongside target date and timer time.
+   - Keep child small goals under active goals unchanged.
+
+2. `tests/goal-app.test.js`
+   - Add `fSmallMilestones` to the DOM harness IDs.
+   - Add coverage that `normalize()` preserves milestones on a standalone small goal.
+   - Add coverage that a standalone small goal with milestones renders progress and milestone checkboxes.
+   - Add coverage that toggling a small-goal milestone updates progress and saved data.
+   - Add coverage that editing a standalone small goal preserves existing milestone done states by text.
+   - Add coverage that winning a small goal shows milestone count in Victories.
+
+3. `LEARNINGS.md`
+   - Append one short lesson if implementation reveals a rule about top-level small-goal milestones.
+
+## Interface / Function Signatures
+In `goal-app.html`:
+
+1. `function progress(g)`
+   - Existing signature stays the same.
+   - For standalone small goals, progress comes from `g.milestones`.
+
+2. `function smallCardHtml(g)`
+   - Adds progress and milestone rendering for `goalType: "small"` cards.
+
+3. `function saveForm()`
+   - Existing signature stays the same.
+   - Small-goal branch reads `document.getElementById("fSmallMilestones").value`.
+
+4. `function toggleMs(id, i)`
+   - Existing signature stays the same and should work for small-goal milestones.
+
+## Test Cases
+1. A small goal can be saved with three milestones.
+2. Completing one milestone shows progress toward that small goal.
+3. Editing milestone text preserves done states for unchanged lines.
+4. Winning the small goal still moves it to Victories and includes milestone count.
+5. Existing small goals without milestones still render normally.
+
+## Verification Commands
+1. `node --test tests/goal-app.test.js`
+2. `node --check tests/goal-app.test.js`
+3. Extract and parse the `goal-app.html` browser script with Node.
+
+## Stop Point
+No implementation code for this addendum will be changed until this plan is approved.
+
+---
+
 # Plan Addendum: Daily Goals Page and Completion Tracker
 
 ## Refine

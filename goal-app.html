@@ -143,6 +143,8 @@
       <input type="date" id="fTargetDate">
       <div class="step">3 - About <small>short note about the quick win</small></div>
       <textarea id="fSmallAbout" placeholder="What is this small goal about?"></textarea>
+      <div class="step">4 - Milestones <small>progress checkpoints for this small goal</small></div>
+      <textarea id="fSmallMilestones" placeholder="First checkpoint&#10;Second checkpoint&#10;Final checkpoint" style="min-height:90px"></textarea>
     </div>
 
     <div id="dailyFields">
@@ -754,12 +756,15 @@ function render(){
   applyViewVisibility();
 }
 function smallCardHtml(g){
+  var p = progress(g);
   return '<div class="card small-card">' +
     '<div class="card-btns"><button class="achieve-btn" onclick="achieveGoal(\'' + g.id + '\')">Win</button><button onclick="openForm(\'' + g.id + '\')">Edit</button></div>' +
     '<span class="future-chip">1 day or less</span>' +
     '<div class="goal-title">' + esc(g.title) + '</div>' +
     (g.description ? '<p class="why">' + esc(g.description) + '</p>' : '') +
     '<div class="meta"><span>Target: <b>' + esc(g.targetDate || "Today") + '</b></span><span>Time: <b>' + esc(formatMinutes(totalTimerMinutes(g))) + '</b></span></div>' +
+    (p == null ? '' : '<div class="bar"><div style="width:' + p + '%"></div></div><div class="bar-row"><span>Milestone progress</span><span>' + p + '%</span></div>') +
+    ((g.milestones || []).length ? '<div class="ms">' + checklistHtml(g, "milestones", "Milestones", "toggleMs") + '</div>' : '') +
     focusControlsHtml(g) +
     timerControlsHtml(g) +
   '</div>';
@@ -834,12 +839,14 @@ function smallGoalsSummaryHtml(g){
 }
 function victoryCardHtml(g){
   if (g.goalType === "small"){
+    var smallMilestones = g.milestones || [];
+    var doneSmallMilestones = smallMilestones.filter(function(item){ return item.done; }).length;
     return '<div class="card victory-card">' +
       '<div class="card-btns"><button onclick="reopenGoal(\'' + g.id + '\')">Reopen</button></div>' +
       '<span class="future-chip">Small goal win</span>' +
       '<div class="goal-title">' + esc(g.title) + '</div>' +
       (g.description ? '<p class="why">' + esc(g.description) + '</p>' : '') +
-      '<div class="meta"><span>Won: <b>' + esc(formatDate(g.achievedAt) || "Completed") + '</b></span><span>Target: <b>' + esc(g.targetDate || "Today") + '</b></span><span>Time: <b>' + esc(formatMinutes(totalTimerMinutes(g))) + '</b></span></div>' +
+      '<div class="meta"><span>Won: <b>' + esc(formatDate(g.achievedAt) || "Completed") + '</b></span><span>Target: <b>' + esc(g.targetDate || "Today") + '</b></span><span>Milestones: <b>' + doneSmallMilestones + '/' + smallMilestones.length + '</b></span><span>Time: <b>' + esc(formatMinutes(totalTimerMinutes(g))) + '</b></span></div>' +
     '</div>';
   }
   var small = smallGoalSummary(g);
@@ -1032,6 +1039,7 @@ function openForm(id, mode){
   document.getElementById("fDescription").value = g ? g.description : "";
   document.getElementById("fTargetDate").value = g ? g.targetDate : todayInputValue();
   document.getElementById("fSmallAbout").value = g ? g.description : "";
+  document.getElementById("fSmallMilestones").value = g ? g.milestones.map(function(m){ return m.text; }).join("\n") : "";
   document.getElementById("fDailyNotes").value = g ? g.notes : "";
   document.getElementById("fDailyMinimum").value = g ? g.dailyMinimum : "";
   document.getElementById("fDailyStandard").value = g ? g.dailyStandard : "";
@@ -1116,7 +1124,7 @@ function saveForm(){
       start: "",
       obstacles: "",
       skills: "",
-      milestones: old ? old.milestones : [],
+      milestones: syncTextList(old ? old.milestones : [], document.getElementById("fSmallMilestones").value),
       smallGoals: old ? old.smallGoals : [],
       timerSessions: old ? old.timerSessions : [],
       createdAt: old ? old.createdAt : Date.now(),

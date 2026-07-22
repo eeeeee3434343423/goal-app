@@ -18,3 +18,4 @@
 - Anonymous Firebase identities cannot provide cross-device ownership; Google authentication must establish the shared UID first.
 - Goal App and Hub must use the same Firestore document shape (`value`, `updatedAt`, `device`) as well as the same path.
 - Legacy local goals lack sync timestamps. Preserve them on first sign-in and upload them rather than silently replacing them.
+- Top-level small goals can reuse the shared `milestones` field for progress checkpoints; preserve done states by matching unchanged milestone text during edits.

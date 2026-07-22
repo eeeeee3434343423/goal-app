@@ -76,6 +76,7 @@ function createHarness(seedGoals = []) {
     "fDailyMax",
     "fTargetDate",
     "fSmallAbout",
+    "fSmallMilestones",
     "activeFields",
     "futureFields",
     "fMdp",
@@ -207,6 +208,22 @@ test("normalization accepts standalone one-day small goals", () => {
   assert.equal(goal.targetDate, "2026-07-12");
   assert.equal(goal.futureMonth, "");
   assert.deepEqual(JSON.parse(JSON.stringify(goal.smallGoals)), []);
+});
+
+test("normalization preserves standalone small goal milestones", () => {
+  const { context } = createHarness([]);
+  const goal = context.normalize({
+    id: "s1",
+    title: "Send the invoice",
+    goalType: "small",
+    milestones: [{ text: "Draft invoice", done: true }, "Send invoice"],
+  });
+
+  assert.equal(goal.goalType, "small");
+  assert.deepEqual(JSON.parse(JSON.stringify(goal.milestones)), [
+    { text: "Draft invoice", done: true },
+    { text: "Send invoice", done: false },
+  ]);
 });
 
 test("daily goals normalize with editable levels and empty completions", () => {
@@ -563,6 +580,20 @@ test("daily fields survive editing and save compatibility", () => {
   assert.equal(saved[0].dailyMax, "New max");
 });
 
+test("daily goal saves do not capture hidden small-goal milestones", () => {
+  const { context, elements, storage } = createHarness([
+    { id: "daily", title: "Daily", goalType: "daily", milestones: [] },
+  ]);
+
+  context.openForm("daily");
+  elements.fSmallMilestones.value = "Should not become a daily milestone";
+  context.saveForm();
+
+  const saved = JSON.parse(storage["achieve.goals.v1"]);
+  assert.equal(saved[0].goalType, "daily");
+  assert.deepEqual(JSON.parse(JSON.stringify(saved[0].milestones)), []);
+});
+
 test("winGoal moves a standalone small goal into victories", () => {
   const { context, elements, storage } = createHarness([
     { id: "small", title: "One day task", goalType: "small", description: "One day", targetDate: "2026-07-12" },
@@ -576,6 +607,22 @@ test("winGoal moves a standalone small goal into victories", () => {
   assert.doesNotMatch(elements.smallList.innerHTML, /One day task/);
   assert.match(elements.doneWrap.innerHTML, /Victories \/ wins - 1/);
   assert.match(elements.doneWrap.innerHTML, /One day task/);
+});
+
+test("winning a standalone small goal shows milestone count in victories", () => {
+  const { context, elements } = createHarness([
+    {
+      id: "small",
+      title: "Milestoned small",
+      goalType: "small",
+      milestones: [{ text: "First", done: true }, { text: "Second", done: false }],
+    },
+  ]);
+
+  context.winGoal("small");
+
+  assert.match(elements.doneWrap.innerHTML, /Milestoned small/);
+  assert.match(elements.doneWrap.innerHTML, /Milestones: <b>2\/2<\/b>/);
 });
 
 test("editing a standalone small goal preserves type and about text", () => {
@@ -594,6 +641,55 @@ test("editing a standalone small goal preserves type and about text", () => {
   assert.equal(saved[0].title, "Updated small goal");
   assert.equal(saved[0].description, "New note");
   assert.equal(saved[0].targetDate, "2026-07-13");
+});
+
+test("standalone small goal milestones render progress and can be toggled", () => {
+  const { context, elements, storage } = createHarness([
+    {
+      id: "small",
+      title: "Small goal",
+      goalType: "small",
+      description: "One day",
+      milestones: [{ text: "First checkpoint", done: false }, { text: "Second checkpoint", done: false }],
+    },
+  ]);
+
+  assert.match(elements.smallList.innerHTML, /Milestone progress/);
+  assert.match(elements.smallList.innerHTML, /0%/);
+  assert.match(elements.smallList.innerHTML, /First checkpoint/);
+
+  context.toggleMs("small", 0);
+
+  const saved = JSON.parse(storage["achieve.goals.v1"]);
+  assert.deepEqual(saved[0].milestones.map((item) => item.done), [true, false]);
+  assert.match(elements.smallList.innerHTML, /50%/);
+});
+
+test("editing a standalone small goal preserves unchanged milestone completion states", () => {
+  const { context, elements, storage } = createHarness([
+    {
+      id: "small",
+      title: "Small goal",
+      goalType: "small",
+      description: "Old note",
+      targetDate: "2026-07-12",
+      milestones: [{ text: "Keep done", done: true }, { text: "Keep open", done: false }],
+    },
+  ]);
+
+  context.openForm("small");
+  elements.fTitle.value = "Updated small goal";
+  elements.fSmallAbout.value = "New note";
+  elements.fSmallMilestones.value = "Keep done\nKeep open\nNew checkpoint";
+  context.saveForm();
+
+  const saved = JSON.parse(storage["achieve.goals.v1"]);
+  assert.equal(saved[0].title, "Updated small goal");
+  assert.deepEqual(saved[0].milestones.map((item) => [item.text, item.done]), [
+    ["Keep done", true],
+    ["Keep open", false],
+    ["New checkpoint", false],
+  ]);
 });
 
 test("array-based export compatibility keeps standalone small goals intact", () => {
