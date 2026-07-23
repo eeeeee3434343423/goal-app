@@ -23,3 +23,8 @@
 
 - Treat malformed JSON, non-array JSON, and an empty array as empty regardless of its timestamp, so it cannot replace populated cloud goals.
 - Make signed-out state explicit in the sync button so an empty local view is not mistaken for confirmed cloud data loss.
+# 2026-07-23 - Goal recovery sync
+
+- Merge goal objects by ID with the newer side winning conflicts while preserving fields and records found on only one side.
+- Authentication readiness is not enough to permit writes; the initial Firestore read must complete first.
+- Persist deliberate deletions as tombstones so shrink protection can distinguish user intent from data loss.

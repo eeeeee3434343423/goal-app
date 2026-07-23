@@ -246,7 +246,7 @@ var FIREBASE_CONFIG = {
 };
 var SYNC_UPDATED_KEY = "achieve.goals.sync.updatedAt";
 var applyingCloud = false;
-var cloudSave = { ready: false, user: null, auth: null, authMod: null, docRef: null, setDoc: null, getDoc: null, onSnapshot: null, unsubscribe: null };
+var cloudSave = { ready: false, user: null, auth: null, authMod: null, docRef: null, setDoc: null, getDoc: null, onSnapshot: null, unsubscribe: null, initialReadDone: true };
 
 function esc(s){ return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
 function uid(){ return "g" + Date.now() + Math.floor(Math.random() * 10000); }
@@ -437,6 +437,60 @@ function resolveGoalInitialSync(local, remote){
   if (!local.updatedAt) return { source: "local", envelope: { value: local.value, updatedAt: Date.now() } };
   return local.updatedAt >= remote.updatedAt ? { source: "local", envelope: local } : { source: "remote", envelope: remote };
 }
+function parseGoalSyncArray(value){
+  try { var parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed.filter(function(x){ return x && typeof x === "object" && x.id; }) : []; }
+  catch(e){ return []; }
+}
+function mergeGoalSyncValues(localValue, remoteValue, localUpdatedAt, remoteUpdatedAt, tombstones){
+  var localItems = parseGoalSyncArray(localValue), remoteItems = parseGoalSyncArray(remoteValue);
+  var preferLocal = Number(localUpdatedAt) >= Number(remoteUpdatedAt);
+  var localById = {}, remoteById = {}, order = [];
+  localItems.forEach(function(item){ localById[String(item.id)] = item; });
+  remoteItems.forEach(function(item){ remoteById[String(item.id)] = item; });
+  remoteItems.concat(localItems).forEach(function(item){
+    var id = String(item.id);
+    if (order.indexOf(id) < 0) order.push(id);
+  });
+  var items = order.filter(function(id){ return !(tombstones && tombstones[id]); }).map(function(id){
+    var localItem = localById[id], remoteItem = remoteById[id];
+    if (!localItem) return remoteItem;
+    if (!remoteItem) return localItem;
+    return preferLocal ? Object.assign({}, remoteItem, localItem) : Object.assign({}, localItem, remoteItem);
+  });
+  return { items: items, localCount: localItems.length, remoteCount: remoteItems.length };
+}
+function mergeGoalTombstones(localMarks, remoteMarks){
+  return Object.assign({}, remoteMarks && typeof remoteMarks === "object" ? remoteMarks : {}, localMarks && typeof localMarks === "object" ? localMarks : {});
+}
+function goalTombstones(){
+  try { var marks = JSON.parse(localStorage.getItem(KEY + ".tombstones")); return marks && typeof marks === "object" ? marks : {}; }
+  catch(e){ return {}; }
+}
+function reviveImportedGoalIds(items){
+  var marks = goalTombstones();
+  (items || []).forEach(function(item){ if (item && item.id) delete marks[String(item.id)]; });
+  try { localStorage.setItem(KEY + ".tombstones", JSON.stringify(marks)); } catch(e){}
+  return marks;
+}
+async function backupGoalRemoteBeforeWrite(){
+  if (!cloudSave.docRef || !cloudSave.getDoc || !cloudSave.doc || !cloudSave.setDoc) return;
+  var snap = await cloudSave.getDoc(cloudSave.docRef);
+  if (!snap.exists()) return;
+  var data = snap.data() || {};
+  var backupRef = cloudSave.doc(cloudSave.docRef, "history", String(Date.now()) + "-" + Math.random().toString(36).slice(2, 8));
+  await cloudSave.setDoc(backupRef, {
+    value: typeof data.value === "string" ? data.value : null,
+    updatedAt: Number(data.updatedAt) || 0,
+    tombstones: data.tombstones || {},
+    backedUpAt: Date.now()
+  });
+  if (!cloudSave.collection || !cloudSave.query || !cloudSave.orderBy || !cloudSave.limit || !cloudSave.getDocs || !cloudSave.deleteDoc) return;
+  var history = cloudSave.collection(cloudSave.docRef, "history");
+  try {
+    var old = await cloudSave.getDocs(cloudSave.query(history, cloudSave.orderBy("backedUpAt", "desc")));
+    await Promise.all(old.docs.slice(20).map(function(entry){ return cloudSave.deleteDoc(entry.ref); }));
+  } catch(e){}
+}
 function setSaveStatus(text){
   var el = document.getElementById("saveStatus");
   if (el) el.textContent = text;
@@ -473,10 +527,18 @@ async function initCloudSave(){
     cloudSave.authMod = authMod;
     cloudSave.setDoc = fireMod.setDoc;
     cloudSave.getDoc = fireMod.getDoc;
+    cloudSave.doc = fireMod.doc;
+    cloudSave.collection = fireMod.collection;
+    cloudSave.query = fireMod.query;
+    cloudSave.orderBy = fireMod.orderBy;
+    cloudSave.limit = fireMod.limit;
+    cloudSave.getDocs = fireMod.getDocs;
+    cloudSave.deleteDoc = fireMod.deleteDoc;
     cloudSave.onSnapshot = fireMod.onSnapshot;
     cloudSave.ready = true;
     authMod.onAuthStateChanged(auth, async function(user){
       cloudSave.user = user;
+      cloudSave.initialReadDone = false;
       if (cloudSave.unsubscribe) { cloudSave.unsubscribe(); cloudSave.unsubscribe = null; }
       if (!user) { cloudSave.docRef = null; setSaveStatus("Cloud: signed out - tap to sign in"); return; }
       cloudSave.docRef = fireMod.doc(db, "users", user.uid, "appdata", KEY);
@@ -496,13 +558,14 @@ async function loadCloudGoals(){
   try { return normalizeGoals(JSON.parse(data.value)); } catch(e){ return null; }
 }
 async function saveCloudGoals(){
-  if (!cloudSave.ready || !cloudSave.user || !cloudSave.docRef || !cloudSave.setDoc) return;
+  if (!cloudSave.ready || !cloudSave.user || !cloudSave.docRef || !cloudSave.setDoc || !cloudSave.initialReadDone) return;
   try {
     var updatedAt = Number(localStorage.getItem(SYNC_UPDATED_KEY)) || Date.now();
     var value = JSON.stringify(storedGoals());
     if (goalPayloadEmpty(value)) return;
     var device = typeof navigator !== "undefined" && navigator.userAgent ? navigator.userAgent.slice(0, 80) : "unknown";
-    await cloudSave.setDoc(cloudSave.docRef, { value: value, updatedAt: updatedAt, device: device }, { merge: true });
+    try { await backupGoalRemoteBeforeWrite(); } catch(e){}
+    await cloudSave.setDoc(cloudSave.docRef, { value: value, updatedAt: updatedAt, tombstones: goalTombstones(), device: device }, { merge: true });
     var who = (cloudSave.user.displayName || cloudSave.user.email || "me").split(" ")[0];
     setSaveStatus("Cloud: synced " + who + " " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
   } catch(e){
@@ -513,8 +576,20 @@ async function startGoalSync(){
   try {
     var snap = await cloudSave.getDoc(cloudSave.docRef);
     var data = snap.exists() ? (snap.data() || {}) : {};
+    cloudSave.initialReadDone = true;
     var local = { value: localStorage.getItem(KEY), updatedAt: Number(localStorage.getItem(SYNC_UPDATED_KEY)) || 0 };
     var remote = { value: typeof data.value === "string" ? data.value : null, updatedAt: Number(data.updatedAt) || 0 };
+    if (!goalPayloadEmpty(local.value) && !goalPayloadEmpty(remote.value)){
+      var tombstones = mergeGoalTombstones(goalTombstones(), data.tombstones);
+      var merged = mergeGoalSyncValues(local.value, remote.value, local.updatedAt, remote.updatedAt, tombstones);
+      var mergedEnvelope = { value: JSON.stringify(merged.items), updatedAt: Math.max(local.updatedAt, remote.updatedAt, Date.now()) };
+      localStorage.setItem(KEY + ".tombstones", JSON.stringify(tombstones));
+      applyCloudEnvelope(mergedEnvelope);
+      setSaveStatus("Cloud: merged " + merged.localCount + " here + " + merged.remoteCount + " cloud");
+      await saveCloudGoals();
+      local = mergedEnvelope;
+      remote = mergedEnvelope;
+    }
     var result = resolveGoalInitialSync(local, remote);
     if (result.source === "local") await saveCloudGoals();
     else if (result.source === "remote") applyCloudEnvelope(result.envelope);
@@ -523,8 +598,21 @@ async function startGoalSync(){
       if (!next.exists()) return;
       var incoming = next.data() || {};
       var currentAt = Number(localStorage.getItem(SYNC_UPDATED_KEY)) || 0;
-      if (typeof incoming.value === "string" && !goalPayloadEmpty(incoming.value) && Number(incoming.updatedAt) > currentAt)
-        applyCloudEnvelope({ value: incoming.value, updatedAt: Number(incoming.updatedAt) });
+      if (typeof incoming.value === "string" && !goalPayloadEmpty(incoming.value) && Number(incoming.updatedAt) > currentAt){
+        var currentValue = localStorage.getItem(KEY);
+        var marks = mergeGoalTombstones(goalTombstones(), incoming.tombstones);
+        localStorage.setItem(KEY + ".tombstones", JSON.stringify(marks));
+        var liveMerge = mergeGoalSyncValues(currentValue, incoming.value, currentAt, Number(incoming.updatedAt), marks);
+        var incomingCount = parseGoalSyncArray(incoming.value).length;
+        var liveEnvelope = { value: JSON.stringify(liveMerge.items), updatedAt: Number(incoming.updatedAt) };
+        applyCloudEnvelope(liveEnvelope);
+        if (liveMerge.items.length > incomingCount){
+          setSaveStatus("Cloud: protected " + liveMerge.items.length + " goals from shrink");
+          saveCloudGoals();
+        } else {
+          setSaveStatus("Cloud: loaded " + liveMerge.items.length + " goals");
+        }
+      }
     }, function(){ setSaveStatus("Cloud error - saved here"); });
   } catch(e){ setSaveStatus("Cloud unavailable - saved here"); }
 }
@@ -1335,6 +1423,9 @@ function saveForm(){
 function deleteGoal(){
   if (!editId) return;
   if (!confirm("Delete this goal? This cannot be undone.")) return;
+  var marks = goalTombstones();
+  marks[String(editId)] = Date.now();
+  try { localStorage.setItem(KEY + ".tombstones", JSON.stringify(marks)); } catch(e){}
   goals = goals.filter(function(x){ return x.id !== editId; });
   save();
   closeForm();
@@ -1357,6 +1448,7 @@ function importGoals(inp){
       var arr = JSON.parse(reader.result);
       if (!Array.isArray(arr)) throw new Error("bad format");
       goals = normalizeGoals(arr);
+      reviveImportedGoalIds(goals);
       save();
       alert("Imported " + goals.length + " goals.");
     } catch(e){ alert("Could not read that file. Make sure it is an Export from this app."); }
