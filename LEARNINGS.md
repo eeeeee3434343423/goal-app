@@ -28,3 +28,9 @@
 - Merge goal objects by ID with the newer side winning conflicts while preserving fields and records found on only one side.
 - Authentication readiness is not enough to permit writes; the initial Firestore read must complete first.
 - Persist deliberate deletions as tombstones so shrink protection can distinguish user intent from data loss.
+
+# 2026-07-23 - Per-record recovery
+
+- A nonempty destination collection does not prove migration completion; resume deterministic IDs individually and verify exact ID parity.
+- Polling must preserve records with pending local transactions so old cloud payloads cannot temporarily replace an in-flight edit.
+- Firestore rules for a shared project must retain the exact known overlays used by Morning Read and Life Systems Tracker.

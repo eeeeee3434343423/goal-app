@@ -876,3 +876,7 @@ No implementation code for this addendum will be changed until this plan is appr
 3. [done] Embedded JavaScript syntax check.
 4. [pending] Copy to the separate Goal App repository and verify hosted Google sign-in after deployment.
 
+## 2026-07-23 v2 recovery extension
+
+Approved implementation replaces whole-array goal writes with per-record revisioned transactions, recoverable Trash, append-only audit records, resumable legacy migration, abnormal-shrink lockout, and a Git/Vercel preview gate. Legacy documents remain read-only migration and rollback inputs.
+

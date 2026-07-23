@@ -84,6 +84,9 @@
   .hide{display:none}
   @media(max-width:640px){.wrap{padding:20px 14px 48px}.goal-title{padding-right:0;margin-top:36px}.card-btns{left:14px;right:14px;justify-content:flex-start}}
 </style>
+<script src="./sync-safety-v2.js"></script>
+<script src="./sync-v2-api.js"></script>
+<script src="./sync-v2-firestore-modern.js"></script>
 </head>
 <body>
 <div class="wrap">
@@ -535,6 +538,8 @@ async function initCloudSave(){
     cloudSave.getDocs = fireMod.getDocs;
     cloudSave.deleteDoc = fireMod.deleteDoc;
     cloudSave.onSnapshot = fireMod.onSnapshot;
+    cloudSave.fireMod = fireMod;
+    cloudSave.db = db;
     cloudSave.ready = true;
     authMod.onAuthStateChanged(auth, async function(user){
       cloudSave.user = user;
@@ -542,7 +547,7 @@ async function initCloudSave(){
       if (cloudSave.unsubscribe) { cloudSave.unsubscribe(); cloudSave.unsubscribe = null; }
       if (!user) { cloudSave.docRef = null; setSaveStatus("Cloud: signed out - tap to sign in"); return; }
       cloudSave.docRef = fireMod.doc(db, "users", user.uid, "appdata", KEY);
-      await startGoalSync();
+      await startGoalV2Sync();
     });
   } catch(e){
     cloudSave.ready = false;
@@ -558,19 +563,89 @@ async function loadCloudGoals(){
   try { return normalizeGoals(JSON.parse(data.value)); } catch(e){ return null; }
 }
 async function saveCloudGoals(){
-  if (!cloudSave.ready || !cloudSave.user || !cloudSave.docRef || !cloudSave.setDoc || !cloudSave.initialReadDone) return;
+  if (!cloudSave.ready || !cloudSave.user || !cloudSave.initialReadDone) return;
   try {
-    var updatedAt = Number(localStorage.getItem(SYNC_UPDATED_KEY)) || Date.now();
-    var value = JSON.stringify(storedGoals());
-    if (goalPayloadEmpty(value)) return;
-    var device = typeof navigator !== "undefined" && navigator.userAgent ? navigator.userAgent.slice(0, 80) : "unknown";
-    try { await backupGoalRemoteBeforeWrite(); } catch(e){}
-    await cloudSave.setDoc(cloudSave.docRef, { value: value, updatedAt: updatedAt, tombstones: goalTombstones(), device: device }, { merge: true });
+    if (!window.__V2_SYNC_ACTIVE) {
+      var updatedAt = Number(localStorage.getItem(SYNC_UPDATED_KEY)) || Date.now();
+      var value = JSON.stringify(storedGoals());
+      if (goalPayloadEmpty(value)) return;
+      var device = typeof navigator !== "undefined" && navigator.userAgent ? navigator.userAgent.slice(0, 80) : "unknown";
+      try { await backupGoalRemoteBeforeWrite(); } catch(e){}
+      await cloudSave.setDoc(cloudSave.docRef, { value: value, updatedAt: updatedAt, tombstones: goalTombstones(), device: device }, { merge: true });
+      var legacyWho = (cloudSave.user.displayName || cloudSave.user.email || "me").split(" ")[0];
+      setSaveStatus("Cloud: synced " + legacyWho + " " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
+      return;
+    }
+    await syncV2Records("goals", storedGoals(), "goal");
     var who = (cloudSave.user.displayName || cloudSave.user.email || "me").split(" ")[0];
     setSaveStatus("Cloud: synced " + who + " " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
   } catch(e){
-    setSaveStatus("Cloud unavailable - saved here");
+    setSaveStatus(e && e.code === "REVISION_CONFLICT" ? "Cloud conflict - reload required" : "Cloud unavailable - saved here");
   }
+}
+async function startGoalV2Sync(){
+  var deviceKey = "achieve.goals.v2.device";
+  var deviceId = localStorage.getItem(deviceKey);
+  if (!deviceId) {
+    deviceId = (crypto.randomUUID && crypto.randomUUID()) || String(Date.now()) + "-" + Math.random().toString(36).slice(2);
+    localStorage.setItem(deviceKey, deviceId);
+  }
+  await configureV2Sync({
+    uid: cloudSave.user.uid,
+    deviceId: deviceId,
+    port: createModernV2Port(cloudSave.db, cloudSave.fireMod, cloudSave.user.uid)
+  });
+  var cloudRecords = await loadV2Records("goals");
+  var migrationGoals = storedGoals();
+  var legacySnap = await cloudSave.getDoc(cloudSave.docRef);
+  if (legacySnap.exists()) {
+    var legacyData = legacySnap.data() || {};
+    if (typeof legacyData.value === "string" && !goalPayloadEmpty(legacyData.value)) {
+      migrationGoals = mergeGoalSyncValues(
+        JSON.stringify(migrationGoals),
+        legacyData.value,
+        Number(localStorage.getItem(SYNC_UPDATED_KEY)) || 0,
+        Number(legacyData.updatedAt) || 0,
+        mergeGoalTombstones(goalTombstones(), legacyData.tombstones)
+      ).items;
+    }
+  }
+  await migrateLegacyEnvelopeOnce(migrationGoals, "goal");
+  cloudRecords = await loadV2Records("goals");
+  if (cloudRecords.length) {
+    applyingCloud = true;
+    goals = normalizeGoals(cloudRecords.map(function(record){ return record.payload; }));
+    localStorage.setItem(KEY, JSON.stringify(storedGoals()));
+    applyingCloud = false;
+    render();
+  }
+  cloudSave.initialReadDone = true;
+  var poll = setInterval(async function(){
+    if (!cloudSave.user || applyingCloud) return;
+    try {
+      var latest = await loadV2Records("goals");
+      var next = normalizeGoals(latest.map(function(record){ return record.payload; }));
+      storedGoals().forEach(function(localGoal){
+        var localId = v2RecordIdFor(localGoal, "goal");
+        if (!isV2RecordPending("goals", localId)) return;
+        var cloudIndex = next.findIndex(function(item){ return v2RecordIdFor(item, "goal") === localId; });
+        if (cloudIndex >= 0) next[cloudIndex] = localGoal;
+        else next.push(localGoal);
+      });
+      if (JSON.stringify(storedGoals()) !== JSON.stringify(next)) {
+        applyingCloud = true;
+        goals = next;
+        localStorage.setItem(KEY, JSON.stringify(storedGoals()));
+        applyingCloud = false;
+        render();
+        setSaveStatus("Cloud: refreshed");
+      }
+    } catch(error) {
+      setSaveStatus("Cloud refresh failed - saved here");
+    }
+  }, 15000);
+  cloudSave.unsubscribe = function(){ clearInterval(poll); };
+  setSaveStatus("Cloud: v2 ready");
 }
 async function startGoalSync(){
   try {
@@ -1420,9 +1495,17 @@ function saveForm(){
   save();
   closeForm();
 }
-function deleteGoal(){
+async function deleteGoal(){
   if (!editId) return;
-  if (!confirm("Delete this goal? This cannot be undone.")) return;
+  if (!confirm("Move this goal to 30-day Trash? You can restore it from Recovery.")) return;
+  if (cloudSave.user && cloudSave.initialReadDone) {
+    try {
+      await moveRecordToTrash("goal", String(editId), getV2RecordRevision("goals", String(editId)));
+    } catch(e) {
+      setSaveStatus("Delete blocked: " + (e.message || e));
+      return;
+    }
+  }
   var marks = goalTombstones();
   marks[String(editId)] = Date.now();
   try { localStorage.setItem(KEY + ".tombstones", JSON.stringify(marks)); } catch(e){}

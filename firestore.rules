@@ -1,0 +1,174 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function owner(uid) { return request.auth != null && request.auth.uid == uid; }
+    function validLive(data, recordId) {
+      return data.keys().hasOnly(['id','payload','schemaVersion','revision','createdAt','updatedAt','updatedBy'])
+        && data.id == recordId && data.payload is map && data.schemaVersion == 2
+        && data.revision is int && data.revision >= 1
+        && data.createdAt is timestamp && data.updatedAt == request.time
+        && data.updatedBy is string && data.updatedBy.size() > 0 && data.updatedBy.size() <= 128;
+    }
+    function validGoalPayload(data) {
+      return (!('id' in data) || (data.id is string && data.id.size() <= 128))
+        && (!('title' in data) || (data.title is string && data.title.size() <= 500))
+        && (!('goal' in data) || (data.goal is string && data.goal.size() <= 500))
+        && (!('name' in data) || (data.name is string && data.name.size() <= 500))
+        && (!('milestones' in data) || (data.milestones is list && data.milestones.size() <= 500))
+        && (!('smallGoals' in data) || (data.smallGoals is list && data.smallGoals.size() <= 500));
+    }
+    function validHubPayload(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() <= 200
+        && data.url is string && (data.url == '#' || data.url.matches('https://[^\\s]+'))
+        && (!('desc' in data) || (data.desc is string && data.desc.size() <= 1000))
+        && (!('icon' in data) || (data.icon is string && data.icon.size() <= 32));
+    }
+    function validTrash(data, type, recordId) {
+      return data.keys().hasOnly(['id','recordType','recordId','payload','revision','deletedAt','purgeAfter'])
+        && data.id == type + '__' + recordId && data.recordType == type && data.recordId == recordId
+        && data.payload is map && data.revision is int && data.revision >= 1
+        && data.deletedAt == request.time && data.purgeAfter is timestamp;
+    }
+    function trashAfter(uid, type, recordId) {
+      return getAfter(/databases/$(database)/documents/users/$(uid)/trash/$(type + '__' + recordId));
+    }
+    function trashBefore(uid, type, recordId) {
+      return get(/databases/$(database)/documents/users/$(uid)/trash/$(type + '__' + recordId));
+    }
+    function liveBefore(uid, type, recordId) {
+      return type == 'goal'
+        ? get(/databases/$(database)/documents/users/$(uid)/goals/$(recordId))
+        : get(/databases/$(database)/documents/users/$(uid)/hubApps/$(recordId));
+    }
+    function liveAfter(uid, type, recordId) {
+      return type == 'goal'
+        ? getAfter(/databases/$(database)/documents/users/$(uid)/goals/$(recordId))
+        : getAfter(/databases/$(database)/documents/users/$(uid)/hubApps/$(recordId));
+    }
+    function liveExistsAfter(uid, type, recordId) {
+      return type == 'goal'
+        ? existsAfter(/databases/$(database)/documents/users/$(uid)/goals/$(recordId))
+        : existsAfter(/databases/$(database)/documents/users/$(uid)/hubApps/$(recordId));
+    }
+    function trashExistsAfter(uid, type, recordId) {
+      return existsAfter(/databases/$(database)/documents/users/$(uid)/trash/$(type + '__' + recordId));
+    }
+    function knownLegacy(legacyId) {
+      return legacyId in ['achieve.goals.v1','hub.apps.v1','hub.operating.v1','radar.watchlist.v1','morning-read.v1','life-systems-tracker.v1'];
+    }
+    function validLegacyEnvelope(data) {
+      return data.keys().hasOnly(['value','updatedAt','tombstones','device'])
+        && data.value is string && data.updatedAt is number
+        && (!('tombstones' in data) || data.tombstones is map)
+        && (!('device' in data) || data.device is string);
+    }
+    function validLifeSnapshot(data) {
+      return data.keys().hasOnly(['key','data','sourceClientId','updatedAt','updatedAtMs','revision','schemaVersion'])
+        && data.key == 'life-systems-tracker.v1' && data.data is map
+        && data.sourceClientId is string && data.updatedAt == request.time
+        && data.updatedAtMs is number && data.revision is int && data.revision >= 1
+        && data.schemaVersion == 2;
+    }
+    function validMorningRead(data) {
+      return data.keys().hasOnly(['payload','updatedAt'])
+        && data.payload is map && data.payload.entries is list && data.updatedAt is number;
+    }
+    match /users/{uid}/goals/{recordId} {
+      allow read: if owner(uid);
+      allow create: if owner(uid) && validLive(request.resource.data, recordId) && validGoalPayload(request.resource.data.payload)
+        && (request.resource.data.revision == 1
+          || (request.resource.data.revision == trashBefore(uid, 'goal', recordId).data.revision + 1
+            && !trashExistsAfter(uid, 'goal', recordId)));
+      allow update: if owner(uid) && validLive(request.resource.data, recordId) && validGoalPayload(request.resource.data.payload)
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.revision == resource.data.revision + 1;
+      allow delete: if owner(uid) && trashAfter(uid, 'goal', recordId).data.payload == resource.data.payload
+        && trashAfter(uid, 'goal', recordId).data.revision == resource.data.revision;
+    }
+    match /users/{uid}/hubApps/{recordId} {
+      allow read: if owner(uid);
+      allow create: if owner(uid) && validLive(request.resource.data, recordId) && validHubPayload(request.resource.data.payload)
+        && (request.resource.data.revision == 1
+          || (request.resource.data.revision == trashBefore(uid, 'hubApp', recordId).data.revision + 1
+            && !trashExistsAfter(uid, 'hubApp', recordId)));
+      allow update: if owner(uid) && validLive(request.resource.data, recordId) && validHubPayload(request.resource.data.payload)
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.revision == resource.data.revision + 1;
+      allow delete: if owner(uid) && trashAfter(uid, 'hubApp', recordId).data.payload == resource.data.payload
+        && trashAfter(uid, 'hubApp', recordId).data.revision == resource.data.revision;
+    }
+    match /users/{uid}/trash/{trashId} {
+      allow read: if owner(uid);
+      allow create: if owner(uid) && (
+        (request.resource.data.recordType == 'goal' && validTrash(request.resource.data, 'goal', request.resource.data.recordId))
+        || (request.resource.data.recordType == 'hubApp' && validTrash(request.resource.data, 'hubApp', request.resource.data.recordId))
+      )
+        && trashId == request.resource.data.id
+        && liveBefore(uid, request.resource.data.recordType, request.resource.data.recordId).data.payload == request.resource.data.payload
+        && !liveExistsAfter(uid, request.resource.data.recordType, request.resource.data.recordId);
+      allow update: if false;
+      allow delete: if owner(uid) && (
+        (resource.data.recordType == 'goal'
+          && getAfter(/databases/$(database)/documents/users/$(uid)/goals/$(resource.data.recordId)).data.revision == resource.data.revision + 1)
+        || (resource.data.recordType == 'hubApp'
+          && getAfter(/databases/$(database)/documents/users/$(uid)/hubApps/$(resource.data.recordId)).data.revision == resource.data.revision + 1)
+      );
+    }
+    match /users/{uid}/changeLog/{eventId} {
+      allow read: if owner(uid);
+      allow create: if owner(uid)
+        && request.resource.data.keys().hasOnly(['operation','recordType','recordId','beforeRevision','afterRevision','timestamp','actorUid'])
+        && request.resource.data.operation in ['create','update','delete','restore','migrate']
+        && request.resource.data.recordType in ['goal','hubApp']
+        && request.resource.data.recordId is string
+        && request.resource.data.beforeRevision is int && request.resource.data.afterRevision is int
+        && request.resource.data.timestamp == request.time && request.resource.data.actorUid == uid
+        && (
+          (request.resource.data.operation in ['create','migrate']
+            && request.resource.data.beforeRevision == 0 && request.resource.data.afterRevision == 1
+            && liveAfter(uid, request.resource.data.recordType, request.resource.data.recordId).data.revision == 1)
+          || (request.resource.data.operation == 'update'
+            && request.resource.data.afterRevision == request.resource.data.beforeRevision + 1
+            && liveAfter(uid, request.resource.data.recordType, request.resource.data.recordId).data.revision == request.resource.data.afterRevision)
+          || (request.resource.data.operation == 'delete'
+            && request.resource.data.afterRevision == request.resource.data.beforeRevision
+            && trashAfter(uid, request.resource.data.recordType, request.resource.data.recordId).data.revision == request.resource.data.beforeRevision
+            && !liveExistsAfter(uid, request.resource.data.recordType, request.resource.data.recordId))
+          || (request.resource.data.operation == 'restore'
+            && request.resource.data.afterRevision == request.resource.data.beforeRevision + 1
+            && liveAfter(uid, request.resource.data.recordType, request.resource.data.recordId).data.revision == request.resource.data.afterRevision
+            && !trashExistsAfter(uid, request.resource.data.recordType, request.resource.data.recordId))
+        );
+      allow update, delete: if false;
+    }
+    match /users/{uid}/appdata/{legacyId} {
+      allow read: if owner(uid);
+      allow create: if owner(uid) && knownLegacy(legacyId) && (
+        (legacyId in ['achieve.goals.v1','hub.apps.v1','hub.operating.v1','radar.watchlist.v1'] && validLegacyEnvelope(request.resource.data))
+        || (legacyId == 'morning-read.v1' && validMorningRead(request.resource.data))
+        || (legacyId == 'life-systems-tracker.v1' && validLifeSnapshot(request.resource.data) && request.resource.data.revision == 1)
+      );
+      allow update: if owner(uid) && knownLegacy(legacyId) && (
+        (legacyId in ['achieve.goals.v1','hub.apps.v1','hub.operating.v1','radar.watchlist.v1'] && validLegacyEnvelope(request.resource.data))
+        || (legacyId == 'morning-read.v1' && validMorningRead(request.resource.data))
+        || (legacyId == 'life-systems-tracker.v1' && validLifeSnapshot(request.resource.data)
+          && request.resource.data.revision == resource.data.revision + 1)
+      );
+      allow delete: if false;
+    }
+    match /users/{uid}/appdata/life-systems-tracker.v1/history/{revisionId} {
+      allow read: if owner(uid);
+      allow create: if owner(uid)
+        && request.resource.data.keys().hasOnly(['data','revision','schemaVersion','sourceClientId','archivedAt'])
+        && request.resource.data.data is map && request.resource.data.revision is int
+        && request.resource.data.schemaVersion is int && request.resource.data.sourceClientId is string
+        && request.resource.data.archivedAt == request.time;
+      allow update, delete: if false;
+    }
+    match /users/{uid}/syncState/{stateId} {
+      allow read: if owner(uid);
+      allow create, update: if false;
+      allow delete: if false;
+    }
+  }
+}
