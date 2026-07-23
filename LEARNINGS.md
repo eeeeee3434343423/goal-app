@@ -19,3 +19,7 @@
 - Goal App and Hub must use the same Firestore document shape (`value`, `updatedAt`, `device`) as well as the same path.
 - Legacy local goals lack sync timestamps. Preserve them on first sign-in and upload them rather than silently replacing them.
 - Top-level small goals can reuse the shared `milestones` field for progress checkpoints; preserve done states by matching unchanged milestone text during edits.
+# 2026-07-23 - Recovery-safe initial sync
+
+- Treat malformed JSON, non-array JSON, and an empty array as empty regardless of its timestamp, so it cannot replace populated cloud goals.
+- Make signed-out state explicit in the sync button so an empty local view is not mistaken for confirmed cloud data loss.

@@ -478,7 +478,7 @@ async function initCloudSave(){
     authMod.onAuthStateChanged(auth, async function(user){
       cloudSave.user = user;
       if (cloudSave.unsubscribe) { cloudSave.unsubscribe(); cloudSave.unsubscribe = null; }
-      if (!user) { cloudSave.docRef = null; setSaveStatus("Cloud: sign in - saved here"); return; }
+      if (!user) { cloudSave.docRef = null; setSaveStatus("Cloud: signed out - tap to sign in"); return; }
       cloudSave.docRef = fireMod.doc(db, "users", user.uid, "appdata", KEY);
       await startGoalSync();
     });

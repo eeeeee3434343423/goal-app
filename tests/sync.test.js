@@ -21,3 +21,12 @@ test("newer populated value wins", () => {
 test("legacy local goals are preserved on first sign-in", () => {
   assert.equal(context.resolveGoalInitialSync({ value: "[{\"id\":\"l\"}]", updatedAt: 0 }, { value: "[{\"id\":\"r\"}]", updatedAt: 20 }).source, "local");
 });
+test("corrupt or non-array local payload cannot overwrite populated cloud goals", () => {
+  const remote = { value: "[{\"id\":\"safe\"}]", updatedAt: 10 };
+  assert.equal(context.resolveGoalInitialSync({ value: "not-json", updatedAt: 999 }, remote).source, "remote");
+  assert.equal(context.resolveGoalInitialSync({ value: "{\"id\":\"wrong-shape\"}", updatedAt: 999 }, remote).source, "remote");
+});
+test("empty local goals cannot overwrite populated cloud goals even with a misleading timestamp", () => {
+  const remote = { value: "[{\"id\":\"safe\"}]", updatedAt: 1 };
+  assert.equal(context.resolveGoalInitialSync({ value: "[]", updatedAt: Number.MAX_SAFE_INTEGER }, remote).source, "remote");
+});
