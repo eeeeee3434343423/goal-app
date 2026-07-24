@@ -34,3 +34,5 @@
 - A nonempty destination collection does not prove migration completion; resume deterministic IDs individually and verify exact ID parity.
 - Polling must preserve records with pending local transactions so old cloud payloads cannot temporarily replace an in-flight edit.
 - Firestore rules for a shared project must retain the exact known overlays used by Morning Read and Life Systems Tracker.
+- Seed requested user records with stable IDs only after authenticated cloud initialization; generic local load paths must remain side-effect free for imports and tests.
+- Match requested seeds by normalized title as well as ID so older user-created versions are preserved instead of duplicated or overwritten.

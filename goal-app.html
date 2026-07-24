@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Achieve - Goal Tracker</title>
 <style>
-  :root{--text:#2C2C2B;--text2:#7D7A75;--canvas:#FFFFFF;--soft:#F9F8F7;--soft2:#F0EFED;--border:#E6E5E3;
-    --blue:#2783DE;--blueBg:#E5F2FC;--green:#46A171;--greenBg:#E8F1EC;--red:#E56458;--redBg:#FCE9E7;--gold:#B58A2A;--goldBg:#FBF3D9;--ink:#304252;}
+  :root{--text:#F5F7FA;--text2:#9AA4B2;--canvas:#11151C;--soft:#07090D;--soft2:#181E27;--border:#283140;
+    --blue:#4DA3FF;--blueBg:#102A43;--green:#57D38C;--greenBg:#102C20;--red:#FF6B6B;--redBg:#35191D;--gold:#F0C96B;--goldBg:#332A12;--ink:#D9E2EC;}
   *{box-sizing:border-box}
   body{margin:0;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:var(--soft);color:var(--text);font-size:15px;line-height:1.5}
   .wrap{max-width:940px;margin:0 auto;padding:28px 20px 60px}
@@ -99,7 +99,6 @@
       <button onclick="exportGoals()">Export</button>
       <button onclick="document.getElementById('importFile').click()">Import</button>
       <input type="file" id="importFile" accept=".json" style="display:none" onchange="importGoals(this)">
-      <button onclick="loadDemoGoals()">Load demo</button>
       <button onclick="openForm(null, 'daily')">Daily goal</button>
       <button onclick="openForm(null, 'small')">Small goal</button>
       <button class="secondary" onclick="openForm(null, 'future')">Future idea</button>
@@ -411,6 +410,28 @@ function normalizeGoals(items){
   var state = { goalIds: {} };
   return (Array.isArray(items) ? items : []).map(function(item){ return normalize(item, state); });
 }
+function normalizedGoalTitle(value){
+  return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+function ensureRequestedGoals(items){
+  var result = Array.isArray(items) ? items.slice() : [];
+  var titles = {};
+  result.forEach(function(goal){ titles[normalizedGoalTitle(goal && (goal.title || goal.name))] = true; });
+  [
+    { id: "requested-belgian-malinois", title: "Belgian Malinois", goalType: "future", description: "Future goal" },
+    { id: "requested-get-contacts", title: "Get Contacts", goalType: "future", description: "Future goal" },
+    { id: "requested-paint-room", title: "Paint Room", goalType: "active", achievedAt: 1, description: "Victory" }
+  ].forEach(function(seed){
+    var key = normalizedGoalTitle(seed.title);
+    if (!titles[key]) {
+      var next = Object.assign({}, seed);
+      if (next.achievedAt) next.achievedAt = Date.now();
+      result.push(normalize(next));
+      titles[key] = true;
+    }
+  });
+  return result;
+}
 function load(){
   if (DEMO){
     goals = [
@@ -596,7 +617,7 @@ async function startGoalV2Sync(){
     port: createModernV2Port(cloudSave.db, cloudSave.fireMod, cloudSave.user.uid)
   });
   var cloudRecords = await loadV2Records("goals");
-  var migrationGoals = storedGoals();
+  var migrationGoals = ensureRequestedGoals(storedGoals());
   var legacySnap = await cloudSave.getDoc(cloudSave.docRef);
   if (legacySnap.exists()) {
     var legacyData = legacySnap.data() || {};
@@ -614,17 +635,18 @@ async function startGoalV2Sync(){
   cloudRecords = await loadV2Records("goals");
   if (cloudRecords.length) {
     applyingCloud = true;
-    goals = normalizeGoals(cloudRecords.map(function(record){ return record.payload; }));
+    goals = ensureRequestedGoals(normalizeGoals(cloudRecords.map(function(record){ return record.payload; })));
     localStorage.setItem(KEY, JSON.stringify(storedGoals()));
     applyingCloud = false;
     render();
+    await syncV2Records("goals", storedGoals(), "goal");
   }
   cloudSave.initialReadDone = true;
   var poll = setInterval(async function(){
     if (!cloudSave.user || applyingCloud) return;
     try {
       var latest = await loadV2Records("goals");
-      var next = normalizeGoals(latest.map(function(record){ return record.payload; }));
+      var next = ensureRequestedGoals(normalizeGoals(latest.map(function(record){ return record.payload; })));
       storedGoals().forEach(function(localGoal){
         var localId = v2RecordIdFor(localGoal, "goal");
         if (!isV2RecordPending("goals", localId)) return;
@@ -719,89 +741,6 @@ function syncClick(){
     else if (!e || (e.code !== "auth/popup-closed-by-user" && e.code !== "auth/cancelled-popup-request")) setSaveStatus("Cloud: sign-in failed");
   });
 }
-function demoGoals(){
-  var now = Date.now();
-  var day = 86400000;
-  return [
-    normalize({
-      id: "demo-active-launch",
-      title: "Marcus gets 3 paying tutoring students by September 1",
-      mdp: true,
-      why: "Build proof that a simple skill-based offer can create real monthly income.",
-      deadline: "2026-09-01",
-      start: "No paid students yet, but Marcus has a clear subject and two hours most evenings.",
-      obstacles: "Fear of outreach; unclear offer; no landing page yet.",
-      skills: "Offer writing, simple sales calls, consistent follow-up.",
-      milestones: [
-        { text: "Write the tutoring offer", done: true },
-        { text: "Publish a simple landing page", done: true },
-        { text: "Message 30 parents or students", done: false },
-        { text: "Book 5 trial calls", done: false },
-        { text: "Get 3 paying students", done: false }
-      ],
-      smallGoals: [
-        { id: "demo-child-1", text: "Send 5 outreach messages", done: true, createdAt: now - 4 * day, completedAt: now - 4 * day },
-        { id: "demo-child-2", text: "Rewrite the offer headline", done: true, createdAt: now - 3 * day, completedAt: now - 3 * day },
-        { id: "demo-child-3", text: "Follow up with 3 warm leads", done: false, createdAt: now - day, completedAt: null }
-      ],
-      createdAt: now - 14 * day
-    }),
-    normalize({
-      id: "demo-small-script",
-      title: "Practice the trial-call script",
-      goalType: "small",
-      targetDate: todayInputValue(),
-      description: "One-day focused practice so the first calls feel calm and clear.",
-      timerSessions: [
-        { id: "demo-time-1", minutes: 30, startedAt: now - 3 * 3600000, completedAt: now - 2.5 * 3600000 },
-        { id: "demo-time-2", minutes: 60, startedAt: now - 2 * 3600000, completedAt: now - 3600000 }
-      ],
-      createdAt: now - day
-    }),
-    normalize({
-      id: "demo-small-outreach",
-      title: "Send 5 outreach messages",
-      goalType: "small",
-      targetDate: todayInputValue(),
-      description: "A quick win that creates real conversations instead of just planning.",
-      timerSessions: [{ id: "demo-time-3", minutes: 30, startedAt: now - 7200000, completedAt: now - 5400000 }],
-      createdAt: now - day
-    }),
-    normalize({
-      id: "demo-future-course",
-      title: "Turn tutoring lessons into a mini course",
-      goalType: "future",
-      futureMonth: "2026-11",
-      description: "Save this until the first tutoring offer is working."
-    }),
-    normalize({
-      id: "demo-future-youtube",
-      title: "Start a weekly study tips channel",
-      goalType: "future",
-      futureMonth: "2027-01",
-      description: "A future marketing idea after the offer and student results are proven."
-    }),
-    normalize({
-      id: "demo-win-first-student",
-      title: "Win the first paying tutoring student",
-      goalType: "small",
-      targetDate: "2026-08-01",
-      description: "Marcus followed up, booked one call, and closed the first student.",
-      timerSessions: [
-        { id: "demo-time-win-1", minutes: 60, startedAt: now - 7 * day, completedAt: now - 7 * day + 3600000 },
-        { id: "demo-time-win-2", minutes: 30, startedAt: now - 6 * day, completedAt: now - 6 * day + 1800000 }
-      ],
-      createdAt: now - 8 * day,
-      achievedAt: now - 5 * day
-    })
-  ];
-}
-function loadDemoGoals(){
-  if (!confirm("Load the demo success example? This will replace the current goals in this browser.")) return;
-  goals = demoGoals();
-  save();
-}
-
 function progress(g){
   var items = (g.milestones || []).concat(g.smallGoals || []);
   if (!items.length) return null;

@@ -880,3 +880,7 @@ No implementation code for this addendum will be changed until this plan is appr
 
 Approved implementation replaces whole-array goal writes with per-record revisioned transactions, recoverable Trash, append-only audit records, resumable legacy migration, abnormal-shrink lockout, and a Git/Vercel preview gate. Legacy documents remain read-only migration and rollback inputs.
 
+## 2026-07-23 Requested Goal Personalization
+
+Approved scope removes demo-loading code and idempotently seeds Belgian Malinois and Get Contacts as future goals plus Paint Room as a victory. Existing title-matched user records always win and are never overwritten. Verification covers exact-once behavior, reloads, and cloud migration.
+

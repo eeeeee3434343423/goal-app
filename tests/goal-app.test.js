@@ -6,6 +6,31 @@ const vm = require("node:vm");
 
 const htmlPath = path.join(__dirname, "..", "goal-app.html");
 
+test("requested goals are added once without replacing matching user records", () => {
+  const html = fs.readFileSync(htmlPath, "utf8");
+  const start = html.indexOf("function normalizedGoalTitle");
+  const end = html.indexOf("function goalPayloadEmpty", start);
+  assert.ok(start >= 0 && end > start);
+  const context = { Date, normalize: (goal) => goal };
+  vm.createContext(context);
+  vm.runInContext(html.slice(start, end), context);
+  const existing = { id: "mine", title: " Belgian   Malinois ", custom: 42 };
+  const twice = context.ensureRequestedGoals(context.ensureRequestedGoals([existing]));
+  assert.equal(twice.filter((goal) => context.normalizedGoalTitle(goal.title) === "belgian malinois").length, 1);
+  assert.equal(twice.filter((goal) => context.normalizedGoalTitle(goal.title) === "get contacts").length, 1);
+  assert.equal(twice.filter((goal) => context.normalizedGoalTitle(goal.title) === "paint room").length, 1);
+  assert.equal(twice.find((goal) => goal.id === "mine").custom, 42);
+  assert.equal(twice.find((goal) => goal.title === "Get Contacts").goalType, "future");
+  assert.ok(twice.find((goal) => goal.title === "Paint Room").achievedAt);
+});
+
+test("production demo loader is absent", () => {
+  const html = fs.readFileSync(htmlPath, "utf8");
+  assert.doesNotMatch(html, /onclick="loadDemoGoals\(\)"/);
+  assert.doesNotMatch(html, /function loadDemoGoals\s*\(/);
+  assert.doesNotMatch(html, /function demoGoals\s*\(/);
+});
+
 test("mobile sign-in uses popup instead of cross-domain redirect", () => {
   const html = fs.readFileSync(htmlPath, "utf8");
   assert.match(html, /signInWithPopup\(cloudSave\.auth, provider\)/);
@@ -975,45 +1000,6 @@ test("loadCloudGoals normalizes cloud-loaded arrays", async () => {
   assert.equal(loaded[0].goalType, "future");
   assert.equal(loaded[0].description, "Cloud");
   assert.equal(loaded[0].futureMonth, "2028-05");
-});
-
-test("demoGoals includes active, small, future, and achieved goals", () => {
-  const { context } = createHarness([]);
-  const demo = context.demoGoals();
-
-  assert.equal(demo.some((g) => g.goalType === "active" && !g.achievedAt), true);
-  assert.equal(demo.some((g) => g.goalType === "small" && !g.achievedAt), true);
-  assert.equal(demo.some((g) => g.goalType === "future"), true);
-  assert.equal(demo.some((g) => g.achievedAt), true);
-});
-
-test("loadDemoGoals does not replace goals when confirmation is canceled", () => {
-  const { context, storage } = createHarness([
-    { id: "real", title: "Keep my real goal" },
-  ]);
-  context.confirmValue = false;
-
-  context.loadDemoGoals();
-
-  const saved = JSON.parse(storage["achieve.goals.v1"]);
-  assert.equal(saved[0].title, "Keep my real goal");
-});
-
-test("loadDemoGoals replaces, saves, and renders demo goals after confirmation", () => {
-  const { context, elements, storage } = createHarness([
-    { id: "old", title: "Replace this goal" },
-  ]);
-  context.confirmValue = true;
-
-  context.loadDemoGoals();
-
-  const saved = JSON.parse(storage["achieve.goals.v1"]);
-  assert.notEqual(saved[0].title, "Replace this goal");
-  assert.equal(saved.some((g) => g.title.includes("Marcus gets 3 paying tutoring students")), true);
-  assert.match(elements.activeList.innerHTML, /Marcus gets 3 paying tutoring students/);
-  assert.match(elements.smallList.innerHTML, /Practice the trial-call script/);
-  assert.match(elements.futureList.innerHTML, /mini course/);
-  assert.match(elements.doneWrap.innerHTML, /first paying tutoring student/);
 });
 
 test("advanced practice fields normalize into stable backward-compatible shapes", () => {
