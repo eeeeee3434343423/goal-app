@@ -88,13 +88,7 @@
     var migrated = 0;
     for (var index = 0; index < report.records.length; index += 1) {
       var record = report.records[index];
-      if (existingById[record.id]) {
-        if (existingById[record.id].revision === 1 && !payloadEqual(existingById[record.id].payload, record.payload)) {
-          window.enterReadOnlySafetyMode("Legacy migration conflict for " + record.id + ".");
-          throw new Error("Legacy migration conflict for " + record.id + ".");
-        }
-        continue;
-      }
+      if (existingById[record.id]) continue;
       await window.commitRecordMutation({ recordType: recordType, id: record.id, payload: record.payload }, 0);
       migrated += 1;
     }

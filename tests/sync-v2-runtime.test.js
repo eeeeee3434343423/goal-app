@@ -6,6 +6,12 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 
+test("existing v2 goal records win over stale legacy payloads during migration", () => {
+  const api = fs.readFileSync(path.join(__dirname, "..", "sync-v2-api.js"), "utf8");
+  assert.doesNotMatch(api, /Legacy migration conflict/);
+  assert.match(api, /if \(existingById\[record\.id\]\) continue;/);
+});
+
 function runtime() {
   const records = { goals: [], hubApps: [], trash: [], changeLog: [] };
   const listeners = {};
