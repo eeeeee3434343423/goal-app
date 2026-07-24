@@ -14,11 +14,12 @@
   h1{font-size:26px;margin:0}
   .sub{color:var(--text2);margin:2px 0 0;font-size:14px}
   .hdr-btns{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
-  button{font:inherit;border:1px solid var(--border);background:var(--canvas);border-radius:8px;padding:8px 14px;cursor:pointer;font-weight:600;font-size:14px}
-  button:hover{background:var(--soft)}
-  .primary{background:var(--blue);border-color:var(--blue);color:#fff}
+  button{font:inherit;border:1px solid var(--border);background:var(--canvas);color:var(--text);border-radius:8px;padding:8px 14px;cursor:pointer;font-weight:600;font-size:14px}
+  button:hover{background:var(--soft2);color:var(--text)}
+  button:disabled{color:var(--text2);opacity:.55;cursor:not-allowed}
+  .primary{background:var(--blue);border-color:var(--blue);color:var(--soft)}
   .primary:hover{background:#1F74C9}
-  .secondary{background:var(--ink);border-color:var(--ink);color:#fff}
+  .secondary{background:var(--blueBg);border-color:var(--blue);color:var(--text)}
   .secondary:hover{background:#243544}
   .banner{background:var(--goldBg);border:1px solid var(--gold);border-radius:12px;padding:12px 16px;font-size:14px;margin-bottom:18px}
   .card{background:var(--canvas);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:14px;position:relative}
@@ -70,12 +71,13 @@
   .modal .hint{color:var(--text2);font-size:13px;margin:0 0 14px}
   .mode-tabs{display:flex;gap:8px;margin:10px 0 12px}
   .mode-tabs button{flex:1}
-  .mode-tabs button.active{background:var(--blueBg);border-color:#B7D8F4;color:#145C9B}
+  .mode-tabs button.active{background:var(--blueBg);border-color:var(--blue);color:var(--text)}
   .view-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 18px}
-  .view-tabs button.active{background:var(--blueBg);border-color:#B7D8F4;color:#145C9B}
+  .view-tabs button.active{background:var(--blueBg);border-color:var(--blue);color:var(--text)}
   .step{font-size:11.5px;font-weight:800;letter-spacing:.5px;color:var(--blue);text-transform:uppercase;margin:14px 0 3px}
   .step small{color:var(--text2);font-weight:500;text-transform:none;letter-spacing:0}
-  input[type=text],input[type=date],input[type=month],textarea{width:100%;font:inherit;border:1px solid var(--border);border-radius:8px;padding:9px 11px;background:var(--canvas);color:var(--text)}
+  input:not([type=checkbox]):not([type=file]),select,textarea{width:100%;font:inherit;border:1px solid var(--border);border-radius:8px;padding:9px 11px;background:var(--canvas);color:var(--text)}
+  input::placeholder,textarea::placeholder{color:var(--text2);opacity:1}
   textarea{min-height:60px;resize:vertical}
   .chk{display:flex;gap:8px;align-items:center;margin-top:10px;font-size:14px}
   .chk input{accent-color:var(--gold);width:16px;height:16px}

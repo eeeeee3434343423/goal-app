@@ -36,3 +36,5 @@
 - Firestore rules for a shared project must retain the exact known overlays used by Morning Read and Life Systems Tracker.
 - Seed requested user records with stable IDs only after authenticated cloud initialization; generic local load paths must remain side-effect free for imports and tests.
 - Match requested seeds by normalized title as well as ID so older user-created versions are preserved instead of duplicated or overwritten.
+- Dark themes must set foreground colors on the native `button`, input, select, and textarea bases; relying on browser defaults can produce black-on-dark controls even when surrounding text is correct.
+- Active-tab selectors need their own foreground assertion because a light-theme color can survive a palette migration and remain unreadable.

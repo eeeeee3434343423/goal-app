@@ -6,6 +6,34 @@ const vm = require("node:vm");
 
 const htmlPath = path.join(__dirname, "..", "goal-app.html");
 
+function luminance(hex) {
+  const channels = hex.match(/[0-9a-f]{2}/gi).map((value) => {
+    const channel = parseInt(value, 16) / 255;
+    return channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+}
+
+function contrast(foreground, background) {
+  const light = Math.max(luminance(foreground), luminance(background));
+  const dark = Math.min(luminance(foreground), luminance(background));
+  return (light + 0.05) / (dark + 0.05);
+}
+
+test("dark theme gives controls explicit readable foregrounds", () => {
+  const html = fs.readFileSync(htmlPath, "utf8");
+  assert.match(html, /button\s*\{[^}]*color:var\(--text\)/s);
+  assert.match(html, /\.mode-tabs\s+button\.active\s*\{[^}]*color:var\(--text\)/s);
+  assert.match(html, /\.view-tabs\s+button\.active\s*\{[^}]*color:var\(--text\)/s);
+  assert.match(html, /--soft:#030712/);
+  assert.match(html, /--canvas:#07111F/);
+  assert.match(html, /--soft2:#0B1728/);
+  assert.match(html, /--text:#F5F7FA/);
+  assert.match(html, /--text2:#9AA4B2/);
+  assert.match(html, /\.primary\s*\{[^}]*color:var\(--soft\)/s);
+  assert.ok(contrast("#030712", "#4DA3FF") >= 4.5);
+});
+
 test("requested goals are added once without replacing matching user records", () => {
   const html = fs.readFileSync(htmlPath, "utf8");
   const start = html.indexOf("function normalizedGoalTitle");

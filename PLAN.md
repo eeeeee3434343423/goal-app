@@ -884,3 +884,7 @@ Approved implementation replaces whole-array goal writes with per-record revisio
 
 Approved scope removes demo-loading code and idempotently seeds Belgian Malinois and Get Contacts as future goals plus Paint Room as a victory. Existing title-matched user records always win and are never overwritten. Verification covers exact-once behavior, reloads, and cloud migration.
 
+## 2026-07-23 Dark Theme Contrast
+
+Approved Wakeup palette applied to native controls, inputs, active tabs, placeholders, disabled states, and generated action buttons. The full 87-test suite passes with explicit foreground regressions.
+
