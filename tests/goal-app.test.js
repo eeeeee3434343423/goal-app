@@ -59,6 +59,32 @@ test("production demo loader is absent", () => {
   assert.doesNotMatch(html, /function demoGoals\s*\(/);
 });
 
+test("new goal form removes Steps 9 through 15 and combines milestone planning", () => {
+  const html = fs.readFileSync(htmlPath, "utf8");
+  const activeFields = html.slice(html.indexOf('<div id="activeFields">'), html.indexOf('<div class="modal-btns">'));
+
+  assert.match(activeFields, /Milestones and small goals/);
+  assert.match(activeFields, /id="fMilestones"/);
+  assert.match(activeFields, /id="fSmallGoals"/);
+  [
+    "fEvidenceLog", "fExperimentHypothesis", "fExperimentMethod", "fExperimentMeasurement",
+    "fExperimentDecision", "fWeakestPoint", "fWeakestPointDrill", "fFeedbackExpected",
+    "fFeedbackActual", "fFeedbackCorrection", "fIdentityStatement", "fIdentityEvidence",
+    "fThought", "fFact", "fReframe", "fRecoveryTrigger", "fRecoveryReset", "fRecoveryNextStep",
+  ].forEach((id) => {
+    assert.doesNotMatch(activeFields, new RegExp(`id="${id}"`));
+    assert.doesNotMatch(html, new RegExp(`getElementById\\(["']${id}["']\\)`));
+  });
+  for (let step = 9; step <= 15; step += 1) assert.doesNotMatch(activeFields, new RegExp(`>${step} -`));
+});
+
+test("planning textareas have explicit accessible labels", () => {
+  const html = fs.readFileSync(htmlPath, "utf8");
+  assert.match(html, /<label[^>]*for="fSmallMilestones"[^>]*>Steps for this small goal<\/label>/);
+  assert.match(html, /<label[^>]*for="fMilestones"[^>]*>Milestone goals<\/label>/);
+  assert.match(html, /<label[^>]*for="fSmallGoals"[^>]*>Small goals<\/label>/);
+});
+
 test("mobile sign-in uses popup instead of cross-domain redirect", () => {
   const html = fs.readFileSync(htmlPath, "utf8");
   assert.match(html, /signInWithPopup\(cloudSave\.auth, provider\)/);
@@ -732,7 +758,7 @@ test("standalone small goal milestones render progress and can be toggled", () =
     },
   ]);
 
-  assert.match(elements.smallList.innerHTML, /Milestone progress/);
+  assert.match(elements.smallList.innerHTML, /Step progress/);
   assert.match(elements.smallList.innerHTML, /0%/);
   assert.match(elements.smallList.innerHTML, /First checkpoint/);
 
@@ -1086,38 +1112,125 @@ test("addEvidence records proof and preserves completion state", () => {
   assert.equal(saved[0].achievedAt, null);
 });
 
-test("advanced active fields save and safely render user-authored text", () => {
-  const { context, elements, storage } = createHarness([{ id: "g1", title: "Goal" }]);
+test("editing an old active goal preserves hidden advanced and unknown fields unchanged", () => {
+  const advanced = {
+    evidenceLog: [{ id: "e1", text: "Completed the hard rehearsal", createdAt: 10 }],
+    experiment: { hypothesis: "A focused offer wins", method: "Send five messages", measurement: "Replies", decision: "Keep if two reply" },
+    weakestPoint: "Opening",
+    weakestPointDrill: "Ten repetitions",
+    feedback: { expected: "Two replies", actual: "One reply", correction: "Shorten message" },
+    identityStatement: "I am a consistent builder",
+    identityEvidence: "I shipped yesterday",
+    thoughtToFact: { thought: "Nobody will answer", fact: "One person answered", reframe: "Keep testing" },
+    recoveryProtocol: { trigger: "Missed session", reset: "Review", nextStep: "Five minutes" },
+    pluginData: { source: "legacy", nested: { score: 9 } },
+  };
+  const { context, elements, storage } = createHarness([{ id: "g1", title: "Goal", ...advanced }]);
   context.openForm("g1");
-  elements.fEvidenceLog.value = "First proof\n<script>alert(1)</script>";
-  elements.fExperimentHypothesis.value = "A focused offer wins";
-  elements.fExperimentMethod.value = "Send five messages";
-  elements.fExperimentMeasurement.value = "Replies";
-  elements.fExperimentDecision.value = "Keep if two reply";
-  elements.fWeakestPoint.value = "Opening";
-  elements.fWeakestPointDrill.value = "Ten repetitions";
-  elements.fFeedbackExpected.value = "Two replies";
-  elements.fFeedbackActual.value = "One reply";
-  elements.fFeedbackCorrection.value = "Shorten message";
-  elements.fIdentityStatement.value = "I am a consistent builder";
-  elements.fIdentityEvidence.value = "I shipped yesterday";
-  elements.fThought.value = "Nobody will answer";
-  elements.fFact.value = "One person answered last week";
-  elements.fReframe.value = "Responses improve through testing";
-  elements.fRecoveryTrigger.value = "I miss a session";
-  elements.fRecoveryReset.value = "Breathe and review";
-  elements.fRecoveryNextStep.value = "Work for five minutes";
+  elements.fTitle.value = "Goal updated";
   context.saveForm();
 
   const saved = JSON.parse(storage["achieve.goals.v1"])[0];
-  assert.equal(saved.experiment.hypothesis, "A focused offer wins");
-  assert.equal(saved.weakestPointDrill, "Ten repetitions");
-  assert.equal(saved.feedback.correction, "Shorten message");
-  assert.equal(saved.identityStatement, "I am a consistent builder");
-  assert.equal(saved.thoughtToFact.reframe, "Responses improve through testing");
-  assert.equal(saved.recoveryProtocol.nextStep, "Work for five minutes");
-  assert.doesNotMatch(elements.activeList.innerHTML, /<script>alert\(1\)<\/script>/);
-  assert.match(elements.activeList.innerHTML, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  assert.equal(saved.title, "Goal updated");
+  Object.entries(advanced).forEach(([key, value]) => assert.deepEqual(saved[key], value));
+});
+
+test("normalization and editing preserve unknown keys nested in advanced objects", () => {
+  const { context, elements, storage } = createHarness([{
+    id: "nested-advanced",
+    title: "Nested metadata",
+    experiment: { hypothesis: 42, method: "Try", measurement: "Count", decision: "Keep", modelVersion: 3 },
+    feedback: { expected: "Two", actual: "One", correction: "Adjust", reviewer: { id: "coach" } },
+    thoughtToFact: { thought: "Hard", fact: "Started", reframe: "Continue", confidence: 0.8 },
+    recoveryProtocol: { trigger: "Pause", reset: "Breathe", nextStep: "Resume", owner: "me" },
+  }]);
+
+  assert.equal(context.goals[0].experiment.hypothesis, "");
+  assert.equal(context.goals[0].experiment.modelVersion, 3);
+  assert.deepEqual(JSON.parse(JSON.stringify(context.goals[0].feedback.reviewer)), { id: "coach" });
+  assert.equal(context.goals[0].thoughtToFact.confidence, 0.8);
+  assert.equal(context.goals[0].recoveryProtocol.owner, "me");
+
+  context.openForm("nested-advanced");
+  elements.fTitle.value = "Nested metadata updated";
+  context.saveForm();
+
+  const saved = JSON.parse(storage["achieve.goals.v1"])[0];
+  assert.equal(saved.experiment.modelVersion, 3);
+  assert.deepEqual(saved.feedback.reviewer, { id: "coach" });
+  assert.equal(saved.thoughtToFact.confidence, 0.8);
+  assert.equal(saved.recoveryProtocol.owner, "me");
+});
+
+test("duplicate checklist text consumes old matches once and keeps independent states", () => {
+  const { context, elements, storage } = createHarness([{
+    id: "duplicates",
+    title: "Duplicates",
+    goalType: "active",
+    milestones: [{ text: "Practice", done: true }, { text: "Practice", done: false }],
+    smallGoals: [
+      { id: "sg-first", text: "Review", done: true, createdAt: 1, completedAt: 2 },
+      { id: "sg-second", text: "Review", done: false, createdAt: 3, completedAt: null },
+    ],
+  }]);
+
+  context.openForm("duplicates");
+  elements.fMilestones.value = "Practice\nPractice";
+  elements.fSmallGoals.value = "Review\nReview";
+  context.saveForm();
+
+  let saved = JSON.parse(storage["achieve.goals.v1"])[0];
+  assert.deepEqual(saved.milestones.map((item) => item.done), [true, false]);
+  assert.deepEqual(saved.smallGoals.map((item) => [item.id, item.done]), [["sg-first", true], ["sg-second", false]]);
+
+  context.toggleSmallGoal("duplicates", "sg-second");
+  saved = JSON.parse(storage["achieve.goals.v1"])[0];
+  assert.deepEqual(saved.smallGoals.map((item) => [item.id, item.done]), [["sg-first", true], ["sg-second", true]]);
+});
+
+test("Khan Academy Algebra 2 small-goal steps stay specific and preserve completion on edit", () => {
+  const steps = ["Finish Unit 4 & 5", "Finish Unit 6 & 7", "Review Both", "Finish Unit 8"];
+  const { context, elements, storage } = createHarness([
+    { id: "khan", title: "Finish Khan Academy Algebra 2", goalType: "small", milestones: steps.map((text, index) => ({ text, done: index === 1 })) },
+    { id: "other", title: "Clean room", goalType: "small", milestones: [{ text: "Put clothes away", done: false }] },
+  ]);
+
+  assert.match(elements.smallList.innerHTML, /Steps for this small goal/);
+  context.openForm("khan");
+  assert.equal(elements.fSmallMilestones.value, steps.join("\n"));
+  elements.fSmallMilestones.value = `${steps.join("\n")}\nTake course challenge`;
+  context.saveForm();
+
+  const saved = JSON.parse(storage["achieve.goals.v1"]);
+  const khan = saved.find((goal) => goal.id === "khan");
+  const other = saved.find((goal) => goal.id === "other");
+  assert.deepEqual(khan.milestones.map((item) => [item.text, item.done]), [
+    [steps[0], false], [steps[1], true], [steps[2], false], [steps[3], false], ["Take course challenge", false],
+  ]);
+  assert.deepEqual(other.milestones, [{ text: "Put clothes away", done: false }]);
+});
+
+test("combined active planning saves milestone and small-goal lists with completion states", () => {
+  const { context, elements, storage } = createHarness([{
+    id: "active-plan",
+    title: "Complete a course",
+    goalType: "active",
+    milestones: [{ text: "Finish first half", done: true }, { text: "Finish second half", done: false }],
+    smallGoals: [{ id: "sg-review", text: "Review today", done: true, createdAt: 1, completedAt: 2 }],
+  }]);
+
+  context.openForm("active-plan");
+  elements.fMilestones.value = "Finish first half\nFinish second half\nTake final";
+  elements.fSmallGoals.value = "Review today\nPractice tomorrow";
+  context.saveForm();
+
+  const saved = JSON.parse(storage["achieve.goals.v1"])[0];
+  assert.deepEqual(saved.milestones.map((item) => [item.text, item.done]), [
+    ["Finish first half", true], ["Finish second half", false], ["Take final", false],
+  ]);
+  assert.deepEqual(saved.smallGoals.map((item) => [item.text, item.done]), [
+    ["Review today", true], ["Practice tomorrow", false],
+  ]);
 });
 
 test("malicious and duplicate imported IDs normalize to unique inline-handler-safe IDs", () => {

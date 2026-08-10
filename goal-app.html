@@ -147,7 +147,8 @@
       <input type="date" id="fTargetDate">
       <div class="step">3 - About <small>short note about the quick win</small></div>
       <textarea id="fSmallAbout" placeholder="What is this small goal about?"></textarea>
-      <div class="step">4 - Milestones <small>progress checkpoints for this small goal</small></div>
+      <label class="step" for="fSmallMilestones">Steps for this small goal</label>
+      <small>one step per line, specific to this small goal</small>
       <textarea id="fSmallMilestones" placeholder="First checkpoint&#10;Second checkpoint&#10;Final checkpoint" style="min-height:90px"></textarea>
     </div>
 
@@ -174,35 +175,11 @@
       <textarea id="fObstacles" placeholder="Biggest obstacle first - that is usually the real work"></textarea>
       <div class="step">6 - Knowledge and people <small>what must I learn, whose help do I need?</small></div>
       <textarea id="fSkills" placeholder="Skills to build, people who can help"></textarea>
-      <div class="step">7 - Milestone goals <small>one per line; bigger checkpoints for progress</small></div>
+      <div class="step">7 - Milestones and small goals <small>break the goal into bigger checkpoints and concrete next actions</small></div>
+      <label class="list-title" for="fMilestones">Milestone goals</label>
       <textarea id="fMilestones" placeholder="First milestone&#10;Second milestone&#10;Third milestone" style="min-height:90px"></textarea>
-      <div class="step">8 - Small goals <small>one per line; concrete next actions</small></div>
+      <label class="list-title" for="fSmallGoals">Small goals</label>
       <textarea id="fSmallGoals" placeholder="Email one potential customer&#10;Spend 25 minutes on the draft&#10;Publish the first version" style="min-height:90px"></textarea>
-      <div class="step">9 - Evidence log <small>one concrete proof of progress per line</small></div>
-      <textarea id="fEvidenceLog" placeholder="Asked for feedback&#10;Shipped the first draft"></textarea>
-      <div class="step">10 - Experiment <small>turn assumptions into a measurable test</small></div>
-      <input id="fExperimentHypothesis" placeholder="Hypothesis - what do I expect?">
-      <textarea id="fExperimentMethod" placeholder="Method - what will I try?"></textarea>
-      <input id="fExperimentMeasurement" placeholder="Measurement - what result will I track?">
-      <textarea id="fExperimentDecision" placeholder="Decision rule - continue, change, or stop when..."></textarea>
-      <div class="step">11 - Weakest-point drill <small>practice the bottleneck directly</small></div>
-      <input id="fWeakestPoint" placeholder="Current weakest point">
-      <textarea id="fWeakestPointDrill" placeholder="Focused drill for that weak point"></textarea>
-      <div class="step">12 - Feedback loop <small>compare expectations with reality and correct course</small></div>
-      <textarea id="fFeedbackExpected" placeholder="Expected result"></textarea>
-      <textarea id="fFeedbackActual" placeholder="Actual result"></textarea>
-      <textarea id="fFeedbackCorrection" placeholder="Correction for the next attempt"></textarea>
-      <div class="step">13 - Identity and evidence <small>name the person you are becoming and prove it</small></div>
-      <input id="fIdentityStatement" placeholder="I am becoming someone who...">
-      <textarea id="fIdentityEvidence" placeholder="Evidence that this identity is already true"></textarea>
-      <div class="step">14 - Thought-to-fact reframe <small>separate the story from observable reality</small></div>
-      <textarea id="fThought" placeholder="Automatic thought"></textarea>
-      <textarea id="fFact" placeholder="Observable fact"></textarea>
-      <textarea id="fReframe" placeholder="Useful, reality-based reframe"></textarea>
-      <div class="step">15 - Recovery protocol <small>decide how you restart before a setback happens</small></div>
-      <input id="fRecoveryTrigger" placeholder="Trigger - when I slip or get stuck...">
-      <textarea id="fRecoveryReset" placeholder="Reset action"></textarea>
-      <textarea id="fRecoveryNextStep" placeholder="Smallest next step back into motion"></textarea>
     </div>
 
     <div class="modal-btns">
@@ -352,6 +329,11 @@ function normalize(g, idState){
   var goalType = normalizeGoalType(g);
   var description = g.description || g.desc || "";
   var why = g.why || g.benefits || "";
+  var experiment = g.experiment && typeof g.experiment === "object" ? g.experiment : {};
+  var feedback = g.feedback && typeof g.feedback === "object" ? g.feedback : {};
+  var thoughtToFact = g.thoughtToFact && typeof g.thoughtToFact === "object" ? g.thoughtToFact : {};
+  var recovery = g.recoveryProtocol && typeof g.recoveryProtocol === "object" ? g.recoveryProtocol :
+    (g.recovery && typeof g.recovery === "object" ? g.recovery : {});
   if (goalType === "future" && !description) description = why;
   return Object.assign({}, g, {
     id: safeId(g.id, "g", idState && idState.goalIds),
@@ -377,31 +359,31 @@ function normalize(g, idState){
     smallGoals: normalizeSmallGoals(g.smallGoals || g.actions || g.tasks),
     timerSessions: normalizeTimerSessions(g.timerSessions),
     evidenceLog: normalizeEvidenceLog(g.evidenceLog || g.evidence),
-    experiment: {
-      hypothesis: textField((g.experiment || {}).hypothesis || g.experimentHypothesis),
-      method: textField((g.experiment || {}).method || g.experimentMethod),
-      measurement: textField((g.experiment || {}).measurement || g.experimentMeasurement),
-      decision: textField((g.experiment || {}).decision || g.experimentDecision)
-    },
+    experiment: Object.assign({}, experiment, {
+      hypothesis: textField(experiment.hypothesis || g.experimentHypothesis),
+      method: textField(experiment.method || g.experimentMethod),
+      measurement: textField(experiment.measurement || g.experimentMeasurement),
+      decision: textField(experiment.decision || g.experimentDecision)
+    }),
     weakestPoint: textField(g.weakestPoint),
     weakestPointDrill: textField(g.weakestPointDrill || g.drill),
-    feedback: {
-      expected: textField((g.feedback || {}).expected || g.expectedFeedback),
-      actual: textField((g.feedback || {}).actual || g.actualFeedback),
-      correction: textField((g.feedback || {}).correction || g.feedbackCorrection)
-    },
+    feedback: Object.assign({}, feedback, {
+      expected: textField(feedback.expected || g.expectedFeedback),
+      actual: textField(feedback.actual || g.actualFeedback),
+      correction: textField(feedback.correction || g.feedbackCorrection)
+    }),
     identityStatement: textField(g.identityStatement || g.identity),
     identityEvidence: textField(g.identityEvidence || g.identityProof),
-    thoughtToFact: {
-      thought: textField((g.thoughtToFact || {}).thought || g.negativeThought),
-      fact: textField((g.thoughtToFact || {}).fact || g.objectiveFact),
-      reframe: textField((g.thoughtToFact || {}).reframe || g.thoughtReframe)
-    },
-    recoveryProtocol: {
-      trigger: textField((g.recoveryProtocol || g.recovery || {}).trigger),
-      reset: textField((g.recoveryProtocol || g.recovery || {}).reset || (g.recoveryProtocol || g.recovery || {}).resetAction),
-      nextStep: textField((g.recoveryProtocol || g.recovery || {}).nextStep)
-    },
+    thoughtToFact: Object.assign({}, thoughtToFact, {
+      thought: textField(thoughtToFact.thought || g.negativeThought),
+      fact: textField(thoughtToFact.fact || g.objectiveFact),
+      reframe: textField(thoughtToFact.reframe || g.thoughtReframe)
+    }),
+    recoveryProtocol: Object.assign({}, recovery, {
+      trigger: textField(recovery.trigger),
+      reset: textField(recovery.reset || recovery.resetAction),
+      nextStep: textField(recovery.nextStep)
+    }),
     preAchieveMilestones: Array.isArray(g.preAchieveMilestones) ? g.preAchieveMilestones : null,
     preAchieveSmallGoals: Array.isArray(g.preAchieveSmallGoals) ? g.preAchieveSmallGoals : null,
     createdAt: g.createdAt || Date.now(),
@@ -972,8 +954,8 @@ function smallCardHtml(g){
     '<div class="goal-title">' + esc(g.title) + '</div>' +
     (g.description ? '<p class="why">' + esc(g.description) + '</p>' : '') +
     '<div class="meta"><span>Target: <b>' + esc(g.targetDate || "Today") + '</b></span><span>Time: <b>' + esc(formatMinutes(totalTimerMinutes(g))) + '</b></span></div>' +
-    (p == null ? '' : '<div class="bar"><div style="width:' + p + '%"></div></div><div class="bar-row"><span>Milestone progress</span><span>' + p + '%</span></div>') +
-    ((g.milestones || []).length ? '<div class="ms">' + checklistHtml(g, "milestones", "Milestones", "toggleMs") + '</div>' : '') +
+    (p == null ? '' : '<div class="bar"><div style="width:' + p + '%"></div></div><div class="bar-row"><span>Step progress</span><span>' + p + '%</span></div>') +
+    ((g.milestones || []).length ? '<div class="ms">' + checklistHtml(g, "milestones", "Steps for this small goal", "toggleMs") + '</div>' : '') +
     focusControlsHtml(g) +
     timerControlsHtml(g) +
   '</div>';
@@ -1222,16 +1204,18 @@ function setFormMode(mode){
   document.getElementById("saveButton").textContent = formMode === "future" ? "Save idea" : formMode === "small" ? "Save small goal" : formMode === "daily" ? "Save daily goal" : "Save goal";
 }
 function syncTextList(oldItems, textValue){
-  var oldList = oldItems || [];
+  var remaining = (oldItems || []).slice();
   return textValue.split("\n").map(function(s){ return s.trim(); }).filter(Boolean).map(function(text){
-    var prev = oldList.find(function(item){ return item.text === text; });
+    var matchIndex = remaining.findIndex(function(item){ return item.text === text; });
+    var prev = matchIndex === -1 ? null : remaining.splice(matchIndex, 1)[0];
     return { text: text, done: prev ? prev.done : false };
   });
 }
 function syncSmallGoalTextList(oldItems, textValue){
-  var oldList = oldItems || [];
+  var remaining = (oldItems || []).slice();
   return textValue.split("\n").map(function(s){ return s.trim(); }).filter(Boolean).map(function(text){
-    var prev = oldList.find(function(item){ return item.text === text; });
+    var matchIndex = remaining.findIndex(function(item){ return item.text === text; });
+    var prev = matchIndex === -1 ? null : remaining.splice(matchIndex, 1)[0];
     if (prev) return { id: prev.id, text: text, done: prev.done, createdAt: prev.createdAt, completedAt: prev.completedAt || null };
     return { id: uid(), text: text, done: false, createdAt: Date.now(), completedAt: null };
   });
@@ -1277,24 +1261,6 @@ function openForm(id, mode){
   document.getElementById("fSkills").value = g ? g.skills : "";
   document.getElementById("fMilestones").value = g ? g.milestones.map(function(m){ return m.text; }).join("\n") : "";
   document.getElementById("fSmallGoals").value = g ? g.smallGoals.map(function(s){ return s.text; }).join("\n") : "";
-  document.getElementById("fEvidenceLog").value = g ? g.evidenceLog.map(function(item){ return item.text; }).join("\n") : "";
-  document.getElementById("fExperimentHypothesis").value = g ? g.experiment.hypothesis : "";
-  document.getElementById("fExperimentMethod").value = g ? g.experiment.method : "";
-  document.getElementById("fExperimentMeasurement").value = g ? g.experiment.measurement : "";
-  document.getElementById("fExperimentDecision").value = g ? g.experiment.decision : "";
-  document.getElementById("fWeakestPoint").value = g ? g.weakestPoint : "";
-  document.getElementById("fWeakestPointDrill").value = g ? g.weakestPointDrill : "";
-  document.getElementById("fFeedbackExpected").value = g ? g.feedback.expected : "";
-  document.getElementById("fFeedbackActual").value = g ? g.feedback.actual : "";
-  document.getElementById("fFeedbackCorrection").value = g ? g.feedback.correction : "";
-  document.getElementById("fIdentityStatement").value = g ? g.identityStatement : "";
-  document.getElementById("fIdentityEvidence").value = g ? g.identityEvidence : "";
-  document.getElementById("fThought").value = g ? g.thoughtToFact.thought : "";
-  document.getElementById("fFact").value = g ? g.thoughtToFact.fact : "";
-  document.getElementById("fReframe").value = g ? g.thoughtToFact.reframe : "";
-  document.getElementById("fRecoveryTrigger").value = g ? g.recoveryProtocol.trigger : "";
-  document.getElementById("fRecoveryReset").value = g ? g.recoveryProtocol.reset : "";
-  document.getElementById("fRecoveryNextStep").value = g ? g.recoveryProtocol.nextStep : "";
   document.getElementById("btnDelete").style.display = g ? "" : "none";
   document.getElementById("overlay").classList.add("open");
   window.scrollTo(0, 0);
@@ -1403,34 +1369,6 @@ function saveForm(){
     weakestPointDrill: old.weakestPointDrill, feedback: old.feedback, identityStatement: old.identityStatement,
     identityEvidence: old.identityEvidence, thoughtToFact: old.thoughtToFact, recoveryProtocol: old.recoveryProtocol
   } : emptyAdvancedFields();
-  if (formMode === "active") advanced = {
-    evidenceLog: syncEvidenceTextList(old ? old.evidenceLog : [], document.getElementById("fEvidenceLog").value),
-    experiment: {
-      hypothesis: document.getElementById("fExperimentHypothesis").value.trim(),
-      method: document.getElementById("fExperimentMethod").value.trim(),
-      measurement: document.getElementById("fExperimentMeasurement").value.trim(),
-      decision: document.getElementById("fExperimentDecision").value.trim()
-    },
-    weakestPoint: document.getElementById("fWeakestPoint").value.trim(),
-    weakestPointDrill: document.getElementById("fWeakestPointDrill").value.trim(),
-    feedback: {
-      expected: document.getElementById("fFeedbackExpected").value.trim(),
-      actual: document.getElementById("fFeedbackActual").value.trim(),
-      correction: document.getElementById("fFeedbackCorrection").value.trim()
-    },
-    identityStatement: document.getElementById("fIdentityStatement").value.trim(),
-    identityEvidence: document.getElementById("fIdentityEvidence").value.trim(),
-    thoughtToFact: {
-      thought: document.getElementById("fThought").value.trim(),
-      fact: document.getElementById("fFact").value.trim(),
-      reframe: document.getElementById("fReframe").value.trim()
-    },
-    recoveryProtocol: {
-      trigger: document.getElementById("fRecoveryTrigger").value.trim(),
-      reset: document.getElementById("fRecoveryReset").value.trim(),
-      nextStep: document.getElementById("fRecoveryNextStep").value.trim()
-    }
-  };
   Object.keys(advanced).forEach(function(key){ g[key] = advanced[key]; });
   if (old) goals[goals.indexOf(old)] = g; else goals.push(g);
   save();

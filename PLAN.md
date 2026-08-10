@@ -1,3 +1,76 @@
+# Plan: Permanent Goal Backup and Simpler Goal Steps (2026-08-10)
+
+## Refine
+Protect every goal that exists in the signed-in production Goal App before changing the interface, simplify New Goal by removing Steps 9-15, and let each standalone Small Goal contain its own ordered checklist of steps.
+
+## Assumed Product Meaning
+1. Current New Goal Steps 9-15 (Evidence log through Recovery protocol) disappear from the create/edit form.
+2. Existing values previously saved in those fields remain in storage and survive edits, imports, synchronization, and export; this UI removal must not erase historical data.
+3. Current New Goal Steps 7 and 8 become one section named `Milestones and small goals`, retaining both larger checkpoints and concrete next actions for a regular active goal.
+4. A standalone Small Goal gets a field labeled `Steps for this small goal`. These items belong only to that Small Goal and use its existing `milestones` checklist internally for backward compatibility.
+
+## Approval-Gated Execution Plan
+1. Back up and prove the current production data before implementation.
+   - Identify the canonical Vercel production URL and confirm it corresponds to this repository and `origin/master`.
+   - Open the production app in the existing signed-in browser session and wait for an authenticated `Cloud: synced` state.
+   - Record the visible goal count and IDs/titles from the authenticated cloud-backed state without exposing private goal content in logs beyond what is necessary for verification.
+   - Use the app's Export action to create a dated JSON recovery file, then parse it locally and verify it is a nonempty array with unique stable goal IDs.
+   - Read the current Firestore v2 records, Trash, and audit/recovery export through the existing authenticated app paths; verify every live goal in the browser/export exists in the cloud record set.
+   - Do not perform any migration, cleanup, deletion, or production write if local, export, and cloud counts/IDs disagree. Stop and report the mismatch first.
+
+2. Add tests first in `tests/goal-app.test.js`.
+   - Assert Steps 9-15 controls are absent from the New Goal form.
+   - Assert editing an old active goal preserves all advanced Step 9-15 fields unchanged even though they are hidden/removed from the form.
+   - Assert the regular active-goal form presents one combined `Milestones and small goals` section and saves both lists without losing completion states.
+   - Assert a standalone Small Goal saves multiple goal-specific steps, renders them only on that Small Goal, toggles them independently, and preserves completed states on edit.
+   - Use the Khan Academy Algebra 2 example as a representative four-step test fixture.
+   - Backtest legacy, empty, duplicate, malformed, stale/concurrent, delete/restore, reload, import/export, and offline data paths, including unknown-field preservation.
+
+3. Implement the smallest compatible change in `goal-app.html`.
+   - Remove the Step 9-15 form markup and all form reads for those controls.
+   - Keep `normalize()`, existing advanced saved fields, and `Object.assign({}, old || {}, g)` compatibility so historical values remain losslessly round-trippable.
+   - Replace the separate Step 7 and Step 8 headings with one combined planning heading while retaining `milestones` and `smallGoals` storage fields.
+   - Relabel standalone Small Goal `Milestones` as `Steps for this small goal`; continue storing it in that Small Goal's `milestones` field so existing records need no migration.
+   - Preserve the storage key `achieve.goals.v1`, stable IDs, Google-auth UID, per-record revisions, suspicious-shrink lockout, 30-day Trash, audit history, local-first saving, and export/import behavior.
+
+4. Review the diff adversarially and repair real issues.
+   - Check for accidental data-field deletion, cross-goal step leakage, index/ID toggle mistakes, malformed-import crashes, concurrent overwrite risk, and mobile form regressions.
+   - Confirm only `goal-app.html`, `tests/goal-app.test.js`, `PLAN.md`, and the final append to `LEARNINGS.md` are changed.
+
+5. Verify locally before publishing.
+   - Run `node --test tests/*.test.js`.
+   - Run `node --check` on the extracted browser script and relevant standalone JavaScript files.
+   - Exercise create, edit, toggle, export/import, delete/restore, reload, and offline behavior in the browser.
+
+6. Publish only after a separate deployment approval.
+   - Commit the reviewed change, push to the repository connected to Vercel, and confirm the intended production deployment SHA.
+   - Verify the canonical live URL on desktop and mobile width with no console/network errors.
+   - Using the same authenticated account, prove two fresh clients show identical goals and per-small-goal steps after reload.
+   - Re-export production data and compare stable live goal IDs against the pre-change backup; confirm no current goal disappeared.
+   - Retain the pre-change JSON recovery file and identify the rollback deployment.
+
+7. Append the implementation lesson to `LEARNINGS.md` only after verification.
+
+## Interfaces Kept or Adjusted
+1. `function normalize(g)`
+   - Keeps all legacy and unknown goal fields while normalizing `milestones` and `smallGoals`.
+
+2. `function saveForm()`
+   - No longer reads Step 9-15 controls.
+   - Preserves Step 9-15 data already present on an edited goal.
+   - Saves standalone Small Goal steps with `syncTextList(old.milestones, value)`.
+
+3. `function toggleMs(id, i)`
+   - Continues toggling one step belonging to the specified standalone Small Goal.
+
+4. `function smallCardHtml(g)`
+   - Renders the Small Goal's own steps and progress without mixing them with another goal.
+
+## Stop Point
+No goal data, implementation code, cloud records, Git history, or Vercel deployment will be changed until this plan is approved. Publishing remains a separate approval gate after local tests and review pass.
+
+---
+
 # Plan: Future Goals, Small Goals, and Milestone Goals
 
 ## Refine

@@ -38,3 +38,8 @@
 - Match requested seeds by normalized title as well as ID so older user-created versions are preserved instead of duplicated or overwritten.
 - Dark themes must set foreground colors on the native `button`, input, select, and textarea bases; relying on browser defaults can produce black-on-dark controls even when surrounding text is correct.
 - Active-tab selectors need their own foreground assertion because a light-theme color can survive a palette migration and remain unreadable.
+
+# 2026-08-10 - Simpler goal planning without data loss
+
+- Removing old form controls must also remove every DOM read for those controls, while editing keeps normalized legacy and unknown fields through the existing object merge. Standalone small-goal steps can be relabeled in the UI while continuing to use `milestones` so old checklist completion states survive without migration.
+- Compatibility preservation must merge unknown keys inside normalized nested objects, not only at the goal's top level. Text-based checklist reconciliation must consume each old match once; otherwise duplicate lines inherit the first item's completion state and stable ID.
