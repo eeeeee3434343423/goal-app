@@ -43,3 +43,9 @@
 
 - Removing old form controls must also remove every DOM read for those controls, while editing keeps normalized legacy and unknown fields through the existing object merge. Standalone small-goal steps can be relabeled in the UI while continuing to use `milestones` so old checklist completion states survive without migration.
 - Compatibility preservation must merge unknown keys inside normalized nested objects, not only at the goal's top level. Text-based checklist reconciliation must consume each old match once; otherwise duplicate lines inherit the first item's completion state and stable ID.
+- Nested steps under an Active Goal's child Small Goal need their own stable IDs and timestamps, but they must remain progress-neutral. Only the parent child-goal checkbox contributes to Active Goal progress; finishing every nested step must never silently complete it.
+- Once child Small Goals gain nested state, the parent Active Goal form must stop reconciling them from a titles-only textarea. Preserve the array unchanged on ordinary edits, manage one child at a time in a bounded view, and use nested Trash/Restore rather than cloud-record deletion because the child is part of its parent record.
+
+# 2026-08-11 - Requested child-step visibility
+
+- When the user asks for child Small Goals and their Steps to appear in Active Goals / All Goals, render that structure directly on the saved Active Goal card. A Manage panel may support editing, but it must not hide the requested primary display.

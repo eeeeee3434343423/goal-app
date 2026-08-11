@@ -65,7 +65,8 @@ test("new goal form removes Steps 9 through 15 and combines milestone planning",
 
   assert.match(activeFields, /Milestones and small goals/);
   assert.match(activeFields, /id="fMilestones"/);
-  assert.match(activeFields, /id="fSmallGoals"/);
+  assert.match(activeFields, /id="formSmallGoalsList"/);
+  assert.match(activeFields, /addFormSmallGoal\(\)/);
   [
     "fEvidenceLog", "fExperimentHypothesis", "fExperimentMethod", "fExperimentMeasurement",
     "fExperimentDecision", "fWeakestPoint", "fWeakestPointDrill", "fFeedbackExpected",
@@ -82,7 +83,16 @@ test("planning textareas have explicit accessible labels", () => {
   const html = fs.readFileSync(htmlPath, "utf8");
   assert.match(html, /<label[^>]*for="fSmallMilestones"[^>]*>Steps for this small goal<\/label>/);
   assert.match(html, /<label[^>]*for="fMilestones"[^>]*>Milestone goals<\/label>/);
-  assert.match(html, /<label[^>]*for="fSmallGoals"[^>]*>Small goals<\/label>/);
+  assert.match(html, /Small goals to create/);
+  assert.match(html, /Steps for this child small goal/);
+});
+
+test("Active Goal cards show every child Small Goal with its own parent and step checkboxes", () => {
+  const html = fs.readFileSync(htmlPath, "utf8");
+  const card = html.slice(html.indexOf("function smallGoalsSummaryHtml"), html.indexOf("function victoryCardHtml"));
+  assert.match(card, /Small Goal #/);
+  assert.match(card, /toggleSmallGoal\(/);
+  assert.match(card, /childSmallGoalStepsHtml\(g, item\)/);
 });
 
 test("mobile sign-in uses popup instead of cross-domain redirect", () => {
@@ -142,6 +152,7 @@ function createHarness(seedGoals = []) {
     "smallGoalsTitle",
     "smallGoalsHint",
     "newSmallGoalText",
+    "newSmallGoalSteps",
     "smallGoalsList",
     "formTitle",
     "formHint",
@@ -172,7 +183,7 @@ function createHarness(seedGoals = []) {
     "fObstacles",
     "fSkills",
     "fMilestones",
-    "fSmallGoals",
+    "formSmallGoalsList",
     "fEvidenceLog",
     "fExperimentHypothesis",
     "fExperimentMethod",
@@ -394,7 +405,121 @@ test("new small goal objects preserve ID and dates", () => {
     done: true,
     createdAt: 111,
     completedAt: 222,
+    steps: [],
   });
+});
+
+test("legacy child small goals normalize with empty nested steps", () => {
+  const { context } = createHarness([]);
+  const goal = context.normalize({ id: "active", title: "Active", smallGoals: [{ id: "child", text: "Legacy child", done: true, custom: "keep" }] });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(goal.smallGoals[0].steps)), []);
+  assert.equal(goal.smallGoals[0].done, true);
+  assert.equal(goal.smallGoals[0].custom, "keep");
+});
+
+test("child small goal can be added with Khan Academy steps without changing active progress", () => {
+  const { context, storage } = createHarness([{ id: "active", title: "Finish Algebra 2", milestones: [{ text: "Enroll", done: true }] }]);
+  const steps = ["Finish Unit 4 & 5", "Finish Unit 6 & 7", "Review Both", "Finish Unit 8"];
+
+  context.addSmallGoal("active", "Finish Khan Academy Algebra 2", steps.join("\n"));
+
+  let saved = JSON.parse(storage["achieve.goals.v1"])[0];
+  assert.deepEqual(saved.smallGoals[0].steps.map((step) => step.text), steps);
+  assert.equal(context.progress(context.goals[0]), 50);
+  const childId = saved.smallGoals[0].id;
+  const stepIds = saved.smallGoals[0].steps.map((step) => step.id);
+  assert.equal(new Set(stepIds).size, 4);
+
+  saved.smallGoals[0].steps.forEach((step) => context.toggleSmallGoalStep("active", childId, step.id));
+  saved = JSON.parse(storage["achieve.goals.v1"])[0];
+  assert.equal(saved.smallGoals[0].steps.every((step) => step.done), true);
+  assert.equal(saved.smallGoals[0].done, false);
+  assert.equal(context.progress(context.goals[0]), 50);
+
+  context.toggleSmallGoal("active", childId);
+  assert.equal(context.progress(context.goals[0]), 100);
+  context.toggleSmallGoal("active", childId);
+  assert.equal(context.progress(context.goals[0]), 50);
+  assert.equal(context.goals[0].smallGoals[0].steps.every((step) => step.done), true);
+});
+
+test("standalone small-goal progress uses only its own milestone-backed steps", () => {
+  const { context } = createHarness([]);
+  const goal = context.normalize({
+    id: "standalone",
+    title: "Standalone",
+    goalType: "small",
+    milestones: [{ text: "First", done: true }, { text: "Second", done: false }],
+    smallGoals: [{ id: "legacy-child", text: "Must not count", done: true, steps: [{ text: "Nested", done: true }] }],
+  });
+
+  assert.equal(context.progress(goal), 50);
+});
+
+test("small-goals manager exposes labeled title and nested-step editors", () => {
+  const html = fs.readFileSync(htmlPath, "utf8");
+  assert.match(html, /for="newSmallGoalSteps">Steps for this small goal<\/label>/);
+  assert.match(html, /for="childTitle-/);
+  assert.match(html, /for="childSteps-/);
+  assert.match(html, /saveChildSmallGoalFromManager/);
+});
+
+test("nested child steps render only under their own child goal", () => {
+  const { context, elements } = createHarness([{
+    id: "active", title: "Active", smallGoals: [
+      { id: "one", text: "First child", steps: [{ id: "one-step", text: "Only first", done: true }] },
+      { id: "two", text: "Second child", steps: [{ id: "two-step", text: "Only second", done: false }] },
+    ],
+  }]);
+
+  context.openSmallGoals("active");
+  context.selectChildSmallGoal("active", "one");
+  const html = elements.smallGoalsList.innerHTML;
+  assert.match(html, /First child[\s\S]*Only first/);
+  assert.doesNotMatch(html, /Only second/);
+  assert.match(html, /1\/1 steps/);
+  assert.match(html, /0\/1 steps/);
+});
+
+test("editing nested steps preserves duplicate IDs, independent states, and unknown fields", () => {
+  const { context, storage } = createHarness([{
+    id: "active", title: "Active", smallGoals: [{
+      id: "child", text: "Practice", customChild: { keep: true }, steps: [
+        { id: "step-a", text: "Review", done: true, createdAt: 1, completedAt: 2, source: "first" },
+        { id: "step-b", text: "Review", done: false, createdAt: 3, completedAt: null, source: "second" },
+        null,
+      ],
+    }],
+  }]);
+
+  context.saveChildSmallGoal("active", "child", "Practice updated", "Review\nReview\nNew step");
+  let child = JSON.parse(storage["achieve.goals.v1"])[0].smallGoals[0];
+  assert.equal(child.customChild.keep, true);
+  assert.deepEqual(child.steps.map((step) => [step.id, step.done, step.source || null]), [
+    ["step-a", true, "first"], ["step-b", false, "second"], [child.steps[2].id, false, null],
+  ]);
+
+  context.toggleSmallGoalStep("active", "child", "step-b");
+  child = JSON.parse(storage["achieve.goals.v1"])[0].smallGoals[0];
+  assert.deepEqual(child.steps.slice(0, 2).map((step) => step.done), [true, true]);
+  assert.equal(typeof child.steps[1].completedAt, "number");
+  assert.equal(child.done, false);
+});
+
+test("malformed nested steps fail closed and duplicate unsafe IDs normalize uniquely", () => {
+  const { context } = createHarness([]);
+  const goal = context.normalize({ id: "active", title: "Active", smallGoals: [{
+    id: "child",
+    text: "Child",
+    steps: [null, 17, {}, { id: "x');bad", text: "Valid one", done: true }, { id: "x');bad", text: "Valid two", done: false }],
+  }] });
+  const steps = goal.smallGoals[0].steps;
+
+  assert.deepEqual(steps.map((step) => step.text), ["Valid one", "Valid two"]);
+  assert.equal(new Set(steps.map((step) => step.id)).size, 2);
+  steps.forEach((step) => assert.match(step.id, /^[A-Za-z0-9_-]+$/));
+  assert.deepEqual(steps.map((step) => step.done), [true, false]);
 });
 
 test("toggleSmallGoal flips one small goal by ID and persists timestamps", () => {
@@ -436,6 +561,32 @@ test("deleteSmallGoal removes only the selected small goal", () => {
 
   const saved = JSON.parse(storage["achieve.goals.v1"]);
   assert.deepEqual(saved[0].smallGoals.map((item) => item.text), ["Keep"]);
+  assert.equal(saved[0].smallGoalsTrash[0].text, "Delete");
+  assert.equal(typeof saved[0].smallGoalsTrash[0].deletedAt, "number");
+});
+
+test("child small-goal deletion is confirmed, recoverable, and survives reload", () => {
+  const seed = [{ id: "g1", title: "Goal", smallGoals: [{ id: "child", text: "Recover me", done: true, custom: { keep: 1 }, steps: [{ id: "step", text: "Nested", done: true, source: "legacy" }] }] }];
+  const first = createHarness(seed);
+  first.context.confirmValue = false;
+  first.context.deleteSmallGoal("g1", "child");
+  assert.equal(first.context.goals[0].smallGoals.length, 1);
+
+  first.context.confirmValue = true;
+  first.context.deleteSmallGoal("g1", "child");
+  let saved = JSON.parse(first.storage["achieve.goals.v1"])[0];
+  assert.equal(saved.smallGoals.length, 0);
+  assert.equal(saved.smallGoalsTrash[0].id, "child");
+  assert.equal(saved.smallGoalsTrash[0].steps[0].source, "legacy");
+  assert.equal(saved.smallGoalsTrash[0].custom.keep, 1);
+
+  const reloaded = createHarness(JSON.parse(first.storage["achieve.goals.v1"]));
+  reloaded.context.restoreSmallGoal("g1", "child");
+  saved = JSON.parse(reloaded.storage["achieve.goals.v1"])[0];
+  assert.equal(saved.smallGoalsTrash.length, 0);
+  assert.equal(saved.smallGoals[0].id, "child");
+  assert.equal(saved.smallGoals[0].steps[0].done, true);
+  assert.equal(saved.smallGoals[0].custom.keep, 1);
 });
 
 test("smallGoalSummary handles hundreds of items", () => {
@@ -1176,7 +1327,6 @@ test("duplicate checklist text consumes old matches once and keeps independent s
 
   context.openForm("duplicates");
   elements.fMilestones.value = "Practice\nPractice";
-  elements.fSmallGoals.value = "Review\nReview";
   context.saveForm();
 
   let saved = JSON.parse(storage["achieve.goals.v1"])[0];
@@ -1210,7 +1360,7 @@ test("Khan Academy Algebra 2 small-goal steps stay specific and preserve complet
   assert.deepEqual(other.milestones, [{ text: "Put clothes away", done: false }]);
 });
 
-test("combined active planning saves milestone and small-goal lists with completion states", () => {
+test("editing active planning preserves child small goals while saving milestones", () => {
   const { context, elements, storage } = createHarness([{
     id: "active-plan",
     title: "Complete a course",
@@ -1221,16 +1371,95 @@ test("combined active planning saves milestone and small-goal lists with complet
 
   context.openForm("active-plan");
   elements.fMilestones.value = "Finish first half\nFinish second half\nTake final";
-  elements.fSmallGoals.value = "Review today\nPractice tomorrow";
   context.saveForm();
 
   const saved = JSON.parse(storage["achieve.goals.v1"])[0];
   assert.deepEqual(saved.milestones.map((item) => [item.text, item.done]), [
     ["Finish first half", true], ["Finish second half", false], ["Take final", false],
   ]);
-  assert.deepEqual(saved.smallGoals.map((item) => [item.text, item.done]), [
-    ["Review today", true], ["Practice tomorrow", false],
-  ]);
+  assert.deepEqual(saved.smallGoals.map((item) => [item.id, item.text, item.done]), [["sg-review", "Review today", true]]);
+});
+
+test("other active edits preserve nested child order, steps, and unknown fields", () => {
+  const children = [
+    { id: "first", text: "First", done: false, custom: "keep", steps: [{ id: "s1", text: "Step", done: true, extra: 9 }] },
+    { id: "second", text: "Second", done: true, steps: [] },
+  ];
+  const { context, elements, storage } = createHarness([{ id: "active", title: "Before", why: "Why", smallGoals: children }]);
+  context.openForm("active");
+  elements.fTitle.value = "After";
+  elements.fWhy.value = "Updated why";
+  context.saveForm();
+
+  const saved = JSON.parse(storage["achieve.goals.v1"])[0];
+  assert.equal(saved.title, "After");
+  assert.deepEqual(saved.smallGoals.map((child) => child.id), ["first", "second"]);
+  assert.equal(saved.smallGoals[0].custom, "keep");
+  assert.equal(saved.smallGoals[0].steps[0].extra, 9);
+});
+
+test("new active goal creates child small goals and their independent steps from the form", () => {
+  const { context, elements, storage } = createHarness([]);
+  context.openForm(null, "active");
+  context.addFormSmallGoal();
+  context.addFormSmallGoal();
+  assert.match(elements.formSmallGoalsList.innerHTML, /Small Goal #1/);
+  assert.match(elements.formSmallGoalsList.innerHTML, /Steps for this child small goal/);
+  context.updateFormSmallGoal(context.formChildSmallGoals[0].id, "text", "First child");
+  context.updateFormSmallGoal(context.formChildSmallGoals[0].id, "stepsText", "First step\nSecond step");
+  context.updateFormSmallGoal(context.formChildSmallGoals[1].id, "text", "Second child");
+  context.updateFormSmallGoal(context.formChildSmallGoals[1].id, "stepsText", "Only step");
+  elements.fTitle.value = "New active";
+  context.saveForm();
+  const children = JSON.parse(storage["achieve.goals.v1"])[0].smallGoals;
+  assert.deepEqual(children.map((item) => item.text), ["First child", "Second child"]);
+  assert.deepEqual(children[0].steps.map((step) => step.text), ["First step", "Second step"]);
+  assert.deepEqual(children[1].steps.map((step) => step.text), ["Only step"]);
+});
+
+test("small-goals manager is bounded and expands only the selected child", () => {
+  const many = Array.from({ length: 120 }, (_, index) => ({ id: `child-${index}`, text: `Child ${index}`, steps: Array.from({ length: 20 }, (_, step) => ({ id: `step-${index}-${step}`, text: `Nested ${index}-${step}` })) }));
+  const { context, elements } = createHarness([{ id: "active", title: "Large", smallGoals: many }]);
+  context.openSmallGoals("active");
+  let html = elements.smallGoalsList.innerHTML;
+  assert.ok((html.match(/class="child-small-goal"/g) || []).length <= 40);
+  assert.equal((html.match(/class="child-editor"/g) || []).length, 0);
+  assert.doesNotMatch(html, /Nested 0-0/);
+  assert.match(html, /Showing 40 of 120/);
+
+  context.selectChildSmallGoal("active", "child-0");
+  html = elements.smallGoalsList.innerHTML;
+  assert.equal((html.match(/class="child-editor"/g) || []).length, 1);
+  assert.match(html, /Nested 0-0/);
+  assert.doesNotMatch(html, /Nested 1-0/);
+});
+
+test("child manager controls have child-specific accessible names", () => {
+  const { context, elements } = createHarness([{ id: "active", title: "Goal", smallGoals: [{ id: "child", text: "Read chapter", steps: [] }], smallGoalsTrash: [{ id: "trashed", text: "Old child", deletedAt: 1, steps: [] }] }]);
+  context.openSmallGoals("active");
+  const html = elements.smallGoalsList.innerHTML;
+  assert.match(html, /aria-label="Complete Read chapter"/);
+  assert.match(html, /aria-label="Edit Read chapter"/);
+  assert.match(html, /aria-label="Delete Read chapter"/);
+  assert.match(html, /aria-label="Restore Old child"/);
+  assert.match(fs.readFileSync(htmlPath, "utf8"), /<label[^>]*for="newSmallGoalText"/);
+  context.selectChildSmallGoal("active", "child");
+  assert.match(elements.smallGoalsList.innerHTML, /aria-label="Save Read chapter"/);
+});
+
+test("malformed child Trash entries fail closed while valid nested data survives normalization", () => {
+  const { context } = createHarness([{
+    id: "active", title: "Goal", smallGoalsTrash: [null, 12, {}, {
+      id: "trash-child", text: "Valid trash", deletedAt: 55, custom: "keep",
+      steps: [null, { id: "trash-step", text: "Valid nested", done: true, extra: 7 }],
+    }],
+  }]);
+  const trash = context.goals[0].smallGoalsTrash;
+  assert.equal(trash.length, 1);
+  assert.equal(trash[0].deletedAt, 55);
+  assert.equal(trash[0].custom, "keep");
+  assert.equal(trash[0].steps[0].id, "trash-step");
+  assert.equal(trash[0].steps[0].extra, 7);
 });
 
 test("malicious and duplicate imported IDs normalize to unique inline-handler-safe IDs", () => {

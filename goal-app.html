@@ -53,6 +53,10 @@
   .small-goal-row input{margin-top:4px;accent-color:var(--green)}
   .small-goal-row .done-txt{text-decoration:line-through;color:var(--text2)}
   .small-goal-row button{padding:4px 8px;font-size:12px;color:var(--red);border-color:#F0BBB5}
+  .child-small-goal{border:1px solid var(--border);border-radius:10px;padding:10px;margin:10px 0}
+  .child-small-goal .small-goal-row{border-bottom:0;padding-top:0}
+  .child-step-list label{display:flex;gap:8px;align-items:flex-start;padding:3px 0;font-size:13px}
+  .child-editor{display:grid;gap:6px;margin-top:8px}
   .quick-add{display:grid;grid-template-columns:1fr auto;gap:8px;margin:12px 0}
   .victory-card{border-left:3px solid var(--green);opacity:1}
   .card-btns{position:absolute;top:14px;right:14px;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
@@ -178,8 +182,10 @@
       <div class="step">7 - Milestones and small goals <small>break the goal into bigger checkpoints and concrete next actions</small></div>
       <label class="list-title" for="fMilestones">Milestone goals</label>
       <textarea id="fMilestones" placeholder="First milestone&#10;Second milestone&#10;Third milestone" style="min-height:90px"></textarea>
-      <label class="list-title" for="fSmallGoals">Small goals</label>
-      <textarea id="fSmallGoals" placeholder="Email one potential customer&#10;Spend 25 minutes on the draft&#10;Publish the first version" style="min-height:90px"></textarea>
+      <div class="list-title">Small goals to create</div>
+      <p class="hint">Add as many child Small Goals as you need. Each one has its own completion checkbox and optional Steps before and after you save.</p>
+      <div id="formSmallGoalsList"></div>
+      <button type="button" onclick="addFormSmallGoal()">Add small goal</button>
     </div>
 
     <div class="modal-btns">
@@ -194,10 +200,13 @@
   <div class="modal">
     <h2 id="smallGoalsTitle">Small goals</h2>
     <p class="hint" id="smallGoalsHint">Day-or-less wins and action goals for this larger goal.</p>
+    <label class="list-title" for="newSmallGoalText">Small goal title</label>
     <div class="quick-add">
       <input type="text" id="newSmallGoalText" placeholder="Add one small goal">
       <button class="primary" onclick="addSmallGoalFromInput()">Add</button>
     </div>
+    <label class="list-title" for="newSmallGoalSteps">Steps for this small goal</label>
+    <textarea id="newSmallGoalSteps" placeholder="First step&#10;Second step&#10;Final step"></textarea>
     <div id="smallGoalsList"></div>
     <div class="modal-btns">
       <button onclick="closeSmallGoals()">Close</button>
@@ -214,8 +223,12 @@ var DEMO = typeof window.__DEMO_STATE === "string";
 var goals = [];
 var editId = null;
 var formMode = "active";
+var formChildSmallGoals = [];
 var currentView = "today";
 var smallGoalsGoalId = null;
+var selectedChildSmallGoalId = null;
+var CHILD_MANAGER_LIMIT = 40;
+var CHILD_TRASH_LIMIT = 20;
 var lockedEditMode = null;
 var FIREBASE_CONFIG = {
   apiKey: "AIzaSyDEhzShKBA9mcyRchGC4XqUNL-6tzrK0sM",
@@ -263,18 +276,49 @@ function normalizeSmallGoals(items){
   return list.map(function(item){
     var now = Date.now();
     if (typeof item === "string"){
-      return { id: safeId(null, "sg", usedIds), text: item, done: false, createdAt: now, completedAt: null };
+      return { id: safeId(null, "sg", usedIds), text: item, done: false, createdAt: now, completedAt: null, steps: [] };
     }
     if (!item || typeof item !== "object") return null;
     var done = !!(item.done || item.completed);
-    return {
+    return Object.assign({}, item, {
       id: safeId(item.id, "sg", usedIds),
       text: item.text || item.name || item.title || "",
       done: done,
       createdAt: item.createdAt || now,
-      completedAt: item.completedAt || (done ? now : null)
-    };
+      completedAt: item.completedAt || (done ? now : null),
+      steps: normalizeSmallGoalSteps(item.steps)
+    });
   }).filter(function(item){ return item && item.text; });
+}
+function normalizeSmallGoalsTrash(items){
+  var list = Array.isArray(items) ? items : [];
+  var validSources = list.filter(function(item){
+    if (typeof item === "string") return !!item.trim();
+    return !!(item && typeof item === "object" && (item.text || item.name || item.title));
+  });
+  return normalizeSmallGoals(validSources).map(function(item, index){
+    var source = validSources[index] && typeof validSources[index] === "object" ? validSources[index] : {};
+    return Object.assign({}, item, { deletedAt: Number(source.deletedAt) || Date.now() });
+  });
+}
+function normalizeSmallGoalSteps(items, state){
+  var list = Array.isArray(items) ? items : [];
+  var usedIds = state || {};
+  return list.map(function(item){
+    var now = Date.now();
+    if (typeof item === "string") return { id: safeId(null, "step", usedIds), text: item, done: false, createdAt: now, completedAt: null };
+    if (!item || typeof item !== "object") return null;
+    var text = item.text || item.name || item.title || "";
+    if (!text) return null;
+    var done = !!(item.done || item.completed);
+    return Object.assign({}, item, {
+      id: safeId(item.id, "step", usedIds),
+      text: text,
+      done: done,
+      createdAt: item.createdAt || now,
+      completedAt: item.completedAt || (done ? now : null)
+    });
+  }).filter(Boolean);
 }
 function normalizeTimerSessions(items){
   var list = Array.isArray(items) ? items : [];
@@ -357,6 +401,7 @@ function normalize(g, idState){
     skills: g.skills || g.knowledge || "",
     milestones: normalizeChecklist(g.milestones),
     smallGoals: normalizeSmallGoals(g.smallGoals || g.actions || g.tasks),
+    smallGoalsTrash: normalizeSmallGoalsTrash(g.smallGoalsTrash),
     timerSessions: normalizeTimerSessions(g.timerSessions),
     evidenceLog: normalizeEvidenceLog(g.evidenceLog || g.evidence),
     experiment: Object.assign({}, experiment, {
@@ -726,7 +771,7 @@ function syncClick(){
   });
 }
 function progress(g){
-  var items = (g.milestones || []).concat(g.smallGoals || []);
+  var items = g.goalType === "small" ? (g.milestones || []) : (g.milestones || []).concat(g.smallGoals || []);
   if (!items.length) return null;
   var done = items.filter(function(item){ return item.done; }).length;
   return Math.round(100 * done / items.length);
@@ -1023,10 +1068,9 @@ function cardHtml(g){
 }
 function smallGoalsSummaryHtml(g){
   var summary = smallGoalSummary(g);
-  var preview = recentSmallGoals(g, 4);
   return '<div class="small-summary"><div><b>Small goals</b><br><span>' + summary.done + ' done, ' + summary.open + ' open, ' + summary.total + ' total</span></div><button onclick="openSmallGoals(\'' + g.id + '\')">Manage</button></div>' +
-    (preview.length ? '<div class="small-preview">' + preview.map(function(item){
-      return '<div>' + (item.done ? 'Done: ' : 'Next: ') + esc(item.text) + '</div>';
+    ((g.smallGoals || []).length ? '<div class="child-small-goals-card">' + (g.smallGoals || []).map(function(item, index){
+      return '<div class="child-small-goal"><div class="small-goal-row"><label><input aria-label="Complete ' + esc(item.text) + '" type="checkbox" ' + (item.done ? 'checked' : '') + ' onchange="toggleSmallGoal(\'' + g.id + '\',\'' + item.id + '\')"><b class="' + (item.done ? 'done-txt' : '') + '">Small Goal #' + (index + 1) + ': ' + esc(item.text) + '</b></label></div>' + childSmallGoalStepsHtml(g, item) + '</div>';
     }).join("") + '</div>' : '<div class="small-preview">No day-sized goals yet.</div>');
 }
 function victoryCardHtml(g){
@@ -1086,37 +1130,136 @@ function toggleSmallGoal(id, smallGoalId){
   save();
   if (smallGoalsGoalId === id) renderSmallGoalsManager(g);
 }
-function addSmallGoal(id, text){
-  var g = goals.find(function(x){ return x.id === id; });
-  var clean = String(text || "").trim();
-  if (!g || !clean) return;
-  g.smallGoals.push({ id: uid(), text: clean, done: false, createdAt: Date.now(), completedAt: null });
+function syncSmallGoalSteps(oldItems, textValue){
+  var remaining = normalizeSmallGoalSteps(oldItems).slice();
+  return String(textValue || "").split("\n").map(function(text){ return text.trim(); }).filter(Boolean).map(function(text){
+    var matchIndex = remaining.findIndex(function(item){ return item.text === text; });
+    var prev = matchIndex === -1 ? null : remaining.splice(matchIndex, 1)[0];
+    if (prev) return Object.assign({}, prev, { text: text });
+    return { id: uid(), text: text, done: false, createdAt: Date.now(), completedAt: null };
+  });
+}
+function renderFormSmallGoals(){
+  var list = document.getElementById("formSmallGoalsList");
+  if (!list) return;
+  list.innerHTML = formChildSmallGoals.length ? formChildSmallGoals.map(function(item, index){
+    return '<div class="child-small-goal"><div class="small-goal-row"><b>Small Goal #' + (index + 1) + '</b><button type="button" class="danger" onclick="removeFormSmallGoal(\'' + item.id + '\')">Remove</button></div>' +
+      '<label class="list-title" for="formSmallGoalTitle-' + item.id + '">Small goal</label><input id="formSmallGoalTitle-' + item.id + '" value="' + esc(item.text) + '" placeholder="e.g. Email one potential customer" oninput="updateFormSmallGoal(\'' + item.id + '\',\'text\',this.value)">' +
+      '<label class="list-title" for="formSmallGoalSteps-' + item.id + '">Steps for this child small goal</label><textarea id="formSmallGoalSteps-' + item.id + '" placeholder="First step&#10;Second step" oninput="updateFormSmallGoal(\'' + item.id + '\',\'stepsText\',this.value)">' + esc(item.stepsText) + '</textarea></div>';
+  }).join("") : '<div class="small-preview">No child Small Goals yet. Add one when this larger goal needs a concrete next action.</div>';
+}
+function addFormSmallGoal(){
+  formChildSmallGoals.push({ id: uid(), text: "", stepsText: "" });
+  renderFormSmallGoals();
+}
+function updateFormSmallGoal(id, field, value){
+  var item = formChildSmallGoals.find(function(child){ return child.id === id; });
+  if (!item || (field !== "text" && field !== "stepsText")) return;
+  item[field] = String(value == null ? "" : value);
+}
+function removeFormSmallGoal(id){
+  formChildSmallGoals = formChildSmallGoals.filter(function(item){ return item.id !== id; });
+  renderFormSmallGoals();
+}
+function createdFormSmallGoals(){
+  return formChildSmallGoals.map(function(item){
+    var text = item.text.trim();
+    if (!text) return null;
+    return { id: uid(), text: text, done: false, createdAt: Date.now(), completedAt: null, steps: syncSmallGoalSteps([], item.stepsText) };
+  }).filter(Boolean);
+}
+function toggleSmallGoalStep(id, smallGoalId, stepId){
+  var g = goals.find(function(goal){ return goal.id === id; });
+  if (!g || g.goalType !== "active") return;
+  var child = g && g.smallGoals.find(function(item){ return item.id === smallGoalId; });
+  var step = child && child.steps.find(function(item){ return item.id === stepId; });
+  if (!step) return;
+  step.done = !step.done;
+  step.completedAt = step.done ? Date.now() : null;
   save();
   if (smallGoalsGoalId === id) renderSmallGoalsManager(g);
 }
-function deleteSmallGoal(id, smallGoalId){
+function addSmallGoal(id, text, stepsText){
   var g = goals.find(function(x){ return x.id === id; });
-  if (!g) return;
-  g.smallGoals = g.smallGoals.filter(function(item){ return item.id !== smallGoalId; });
+  var clean = String(text || "").trim();
+  if (!g || g.goalType !== "active" || !clean) return;
+  g.smallGoals.push({ id: uid(), text: clean, done: false, createdAt: Date.now(), completedAt: null, steps: syncSmallGoalSteps([], stepsText) });
   save();
   if (smallGoalsGoalId === id) renderSmallGoalsManager(g);
+}
+function saveChildSmallGoal(id, smallGoalId, text, stepsText){
+  var g = goals.find(function(goal){ return goal.id === id; });
+  if (!g || g.goalType !== "active") return;
+  var child = g && g.smallGoals.find(function(item){ return item.id === smallGoalId; });
+  var clean = String(text || "").trim();
+  if (!child || !clean) return;
+  child.text = clean;
+  child.steps = syncSmallGoalSteps(child.steps, stepsText);
+  save();
+  if (smallGoalsGoalId === id) renderSmallGoalsManager(g);
+}
+function saveChildSmallGoalFromManager(id, smallGoalId){
+  var title = document.getElementById("childTitle-" + smallGoalId);
+  var steps = document.getElementById("childSteps-" + smallGoalId);
+  if (!title || !steps) return;
+  saveChildSmallGoal(id, smallGoalId, title.value, steps.value);
+}
+function deleteSmallGoal(id, smallGoalId){
+  var g = goals.find(function(x){ return x.id === id; });
+  var child = g && g.smallGoals.find(function(item){ return item.id === smallGoalId; });
+  if (!child || !confirm("Move this child Small Goal to Trash? You can restore it in this manager.")) return;
+  g.smallGoals = g.smallGoals.filter(function(item){ return item.id !== smallGoalId; });
+  g.smallGoalsTrash = normalizeSmallGoalsTrash(g.smallGoalsTrash);
+  g.smallGoalsTrash.push(Object.assign({}, child, { deletedAt: Date.now() }));
+  if (selectedChildSmallGoalId === smallGoalId) selectedChildSmallGoalId = null;
+  save();
+  if (smallGoalsGoalId === id) renderSmallGoalsManager(g);
+}
+function restoreSmallGoal(id, smallGoalId){
+  var g = goals.find(function(goal){ return goal.id === id; });
+  var child = g && (g.smallGoalsTrash || []).find(function(item){ return item.id === smallGoalId; });
+  if (!child || g.smallGoals.some(function(item){ return item.id === smallGoalId; })) return;
+  var restored = Object.assign({}, child);
+  delete restored.deletedAt;
+  g.smallGoals.push(restored);
+  g.smallGoalsTrash = g.smallGoalsTrash.filter(function(item){ return item.id !== smallGoalId; });
+  save();
+  if (smallGoalsGoalId === id) renderSmallGoalsManager(g);
+}
+function selectChildSmallGoal(id, smallGoalId){
+  var g = goals.find(function(goal){ return goal.id === id; });
+  if (!g || !g.smallGoals.some(function(item){ return item.id === smallGoalId; })) return;
+  selectedChildSmallGoalId = selectedChildSmallGoalId === smallGoalId ? null : smallGoalId;
+  renderSmallGoalsManager(g);
 }
 function openSmallGoals(id){
   var g = goals.find(function(x){ return x.id === id; });
   if (!g) return;
   smallGoalsGoalId = id;
+  selectedChildSmallGoalId = null;
   document.getElementById("smallGoalsOverlay").classList.add("open");
   document.getElementById("newSmallGoalText").value = "";
+  document.getElementById("newSmallGoalSteps").value = "";
   renderSmallGoalsManager(g);
 }
 function closeSmallGoals(){
   document.getElementById("smallGoalsOverlay").classList.remove("open");
   smallGoalsGoalId = null;
+  selectedChildSmallGoalId = null;
 }
 function addSmallGoalFromInput(){
   var text = document.getElementById("newSmallGoalText").value;
-  addSmallGoal(smallGoalsGoalId, text);
+  var steps = document.getElementById("newSmallGoalSteps").value;
+  addSmallGoal(smallGoalsGoalId, text, steps);
   document.getElementById("newSmallGoalText").value = "";
+  document.getElementById("newSmallGoalSteps").value = "";
+}
+function childSmallGoalStepsHtml(g, item){
+  var steps = item.steps || [];
+  var done = steps.filter(function(step){ return step.done; }).length;
+  return '<div class="child-step-list"><div class="list-title">' + done + '/' + steps.length + ' steps</div>' + steps.map(function(step){
+    return '<label><input type="checkbox" ' + (step.done ? 'checked' : '') + ' onchange="toggleSmallGoalStep(\'' + g.id + '\',\'' + item.id + '\',\'' + step.id + '\')"><span class="' + (step.done ? 'done-txt' : '') + '">' + esc(step.text) + '</span></label>';
+  }).join("") + '</div>';
 }
 function renderSmallGoalsManager(g){
   var summary = smallGoalSummary(g);
@@ -1126,9 +1269,21 @@ function renderSmallGoalsManager(g){
     if (a.done !== b.done) return a.done ? 1 : -1;
     return (b.createdAt || 0) - (a.createdAt || 0);
   });
-  document.getElementById("smallGoalsList").innerHTML = sorted.length ? sorted.map(function(item){
-    return '<div class="small-goal-row"><input type="checkbox" ' + (item.done ? 'checked' : '') + ' onchange="toggleSmallGoal(\'' + g.id + '\',\'' + item.id + '\')"><span class="' + (item.done ? 'done-txt' : '') + '">' + esc(item.text) + (item.completedAt ? '<br><small>Won ' + esc(formatDate(item.completedAt)) + '</small>' : '') + '</span><button onclick="deleteSmallGoal(\'' + g.id + '\',\'' + item.id + '\')">Delete</button></div>';
+  var visible = sorted.slice(0, CHILD_MANAGER_LIMIT);
+  var selected = selectedChildSmallGoalId && sorted.find(function(item){ return item.id === selectedChildSmallGoalId; });
+  if (selected && !visible.some(function(item){ return item.id === selected.id; })) visible[visible.length - 1] = selected;
+  var liveHtml = visible.length ? visible.map(function(item){
+    var stepDone = (item.steps || []).filter(function(step){ return step.done; }).length;
+    var expanded = item.id === selectedChildSmallGoalId;
+    return '<div class="child-small-goal"><div class="small-goal-row"><input aria-label="Complete ' + esc(item.text) + '" type="checkbox" ' + (item.done ? 'checked' : '') + ' onchange="toggleSmallGoal(\'' + g.id + '\',\'' + item.id + '\')"><span class="' + (item.done ? 'done-txt' : '') + '">' + esc(item.text) + '<br><small>' + stepDone + '/' + (item.steps || []).length + ' steps' + (item.completedAt ? ' - Won ' + esc(formatDate(item.completedAt)) : '') + '</small></span><span><button aria-label="Edit ' + esc(item.text) + '" onclick="selectChildSmallGoal(\'' + g.id + '\',\'' + item.id + '\')">' + (expanded ? 'Collapse' : 'Edit') + '</button><button aria-label="Delete ' + esc(item.text) + '" onclick="deleteSmallGoal(\'' + g.id + '\',\'' + item.id + '\')">Delete</button></span></div>' +
+      (expanded ? childSmallGoalStepsHtml(g, item) + '<div class="child-editor"><label class="list-title" for="childTitle-' + item.id + '">Small goal title</label><input id="childTitle-' + item.id + '" value="' + esc(item.text) + '"><label class="list-title" for="childSteps-' + item.id + '">Steps for this small goal</label><textarea id="childSteps-' + item.id + '">' + esc((item.steps || []).map(function(step){ return step.text; }).join("\n")) + '</textarea><button aria-label="Save ' + esc(item.text) + '" onclick="saveChildSmallGoalFromManager(\'' + g.id + '\',\'' + item.id + '\')">Save changes</button></div>' : '') + '</div>';
   }).join("") : '<div class="empty"><b>No small goals yet.</b><br>Add day-sized goals here as they come up.</div>';
+  if (sorted.length > visible.length) liveHtml += '<div class="small-preview">Showing ' + visible.length + ' of ' + sorted.length + ' child Small Goals.</div>';
+  var trash = (g.smallGoalsTrash || []).slice().sort(function(a, b){ return (b.deletedAt || 0) - (a.deletedAt || 0); });
+  var trashHtml = trash.length ? '<div class="list-title">Trash - ' + trash.length + '</div>' + trash.slice(0, CHILD_TRASH_LIMIT).map(function(item){
+    return '<div class="small-goal-row"><span></span><span>' + esc(item.text) + '<br><small>Deleted ' + esc(formatDate(item.deletedAt)) + '</small></span><button aria-label="Restore ' + esc(item.text) + '" onclick="restoreSmallGoal(\'' + g.id + '\',\'' + item.id + '\')">Restore</button></div>';
+  }).join("") : '';
+  document.getElementById("smallGoalsList").innerHTML = liveHtml + trashHtml;
 }
 function addTimerSession(id, minutes){
   var g = goals.find(function(x){ return x.id === id && x.goalType === "small"; });
@@ -1216,8 +1371,8 @@ function syncSmallGoalTextList(oldItems, textValue){
   return textValue.split("\n").map(function(s){ return s.trim(); }).filter(Boolean).map(function(text){
     var matchIndex = remaining.findIndex(function(item){ return item.text === text; });
     var prev = matchIndex === -1 ? null : remaining.splice(matchIndex, 1)[0];
-    if (prev) return { id: prev.id, text: text, done: prev.done, createdAt: prev.createdAt, completedAt: prev.completedAt || null };
-    return { id: uid(), text: text, done: false, createdAt: Date.now(), completedAt: null };
+    if (prev) return Object.assign({}, prev, { id: prev.id, text: text, done: prev.done, createdAt: prev.createdAt, completedAt: prev.completedAt || null, steps: normalizeSmallGoalSteps(prev.steps) });
+    return { id: uid(), text: text, done: false, createdAt: Date.now(), completedAt: null, steps: [] };
   });
 }
 function syncEvidenceTextList(oldItems, textValue){
@@ -1260,7 +1415,8 @@ function openForm(id, mode){
   document.getElementById("fObstacles").value = g ? g.obstacles : "";
   document.getElementById("fSkills").value = g ? g.skills : "";
   document.getElementById("fMilestones").value = g ? g.milestones.map(function(m){ return m.text; }).join("\n") : "";
-  document.getElementById("fSmallGoals").value = g ? g.smallGoals.map(function(s){ return s.text; }).join("\n") : "";
+  formChildSmallGoals = [];
+  renderFormSmallGoals();
   document.getElementById("btnDelete").style.display = g ? "" : "none";
   document.getElementById("overlay").classList.add("open");
   window.scrollTo(0, 0);
@@ -1357,7 +1513,7 @@ function saveForm(){
       obstacles: document.getElementById("fObstacles").value.trim(),
       skills: document.getElementById("fSkills").value.trim(),
       milestones: syncTextList(old ? old.milestones : [], document.getElementById("fMilestones").value),
-      smallGoals: syncSmallGoalTextList(old ? old.smallGoals : [], document.getElementById("fSmallGoals").value),
+      smallGoals: old ? old.smallGoals : createdFormSmallGoals(),
       timerSessions: old ? old.timerSessions : [],
       createdAt: old ? old.createdAt : Date.now(),
       achievedAt: old ? old.achievedAt : null

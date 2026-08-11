@@ -1,3 +1,92 @@
+# Plan: Nested Steps for Small Goals Inside Active Goals (2026-08-10)
+
+## Refine
+Make an Active Goal's `Milestones and small goals` area work as one planning system where every child Small Goal can contain its own checkable steps, while keeping Active Goal progress based only on completed milestones and completed child Small Goals.
+
+## Confirmed Progress Rules
+1. A child Small Goal inside an Active Goal may contain any number of steps.
+2. Checking a child step does **not** increase the Active Goal's progress.
+3. After its steps are finished, the user manually checks the entire child Small Goal complete; only that completion increases Active Goal progress.
+4. A standalone top-level Small Goal remains different: its own steps directly calculate that standalone Small Goal's progress.
+5. Completing all child steps does not automatically complete the child Small Goal.
+
+## Files to Change
+1. `goal-app.html`
+   - Extend each child item in an Active Goal's existing `smallGoals` array with a nested `steps` checklist.
+   - Keep the existing `milestones` and `smallGoals` storage fields for backward compatibility; this is a nested extension, not a migration or replacement.
+   - Present Active Goal milestones and child Small Goals together under the existing `Milestones and small goals` heading.
+   - Update the Small Goals manager so adding or editing a child Small Goal provides:
+     - Small Goal title.
+     - `Steps for this small goal`, one step per line.
+     - Checkboxes for the child steps.
+     - A separate checkbox for completing the entire child Small Goal.
+   - Show child-step completion such as `3/4 steps` without counting those steps in Active Goal progress.
+   - Preserve the current standalone Small Goal form and its `milestones`-backed step progress.
+   - Preserve Google-auth sync, local-first saving, revisions, suspicious-shrink protection, Trash, recovery history, imports, exports, and unknown fields.
+
+2. `tests/goal-app.test.js`
+   - Add dependency-free regression tests for the nested child-step shape, UI, progress rules, edits, duplicate text, and saved-data compatibility.
+   - Keep all existing tests green.
+
+3. `LEARNINGS.md`
+   - Append the implementation lesson after the feature and production verification are complete.
+
+## Interface and Data Signatures
+1. `function normalizeSmallGoalSteps(items, state)`
+   - Accepts legacy strings, `{ text, done }`, and new step objects.
+   - Returns `Array<{ id: string, text: string, done: boolean, createdAt: number, completedAt: number | null }>` with safe unique IDs.
+
+2. `function normalizeSmallGoals(items)`
+   - Extends each child Small Goal to:
+   - `{ id, text, done, createdAt, completedAt, steps: Array<SmallGoalStep> }`.
+   - Old child Small Goals without `steps` normalize to `steps: []` without changing completion state.
+
+3. `function addSmallGoal(id, text, stepsText)`
+   - Adds one child Small Goal and its optional newline-separated steps to the specified Active Goal.
+
+4. `function saveChildSmallGoal(id, smallGoalId, text, stepsText)`
+   - Updates one child Small Goal by stable ID.
+   - Preserves step IDs and completion states for unchanged step text and consumes duplicate matches once.
+
+5. `function toggleSmallGoalStep(id, smallGoalId, stepId)`
+   - Toggles one nested step by stable IDs and persists timestamps.
+   - Never changes the child Small Goal's `done` state automatically.
+
+6. `function toggleSmallGoal(id, smallGoalId)`
+   - Continues to manually complete or reopen the whole child Small Goal.
+   - This is the only nested action that changes the child Small Goal's contribution to Active Goal progress.
+
+7. `function progress(g)`
+   - For Active Goals: counts only `g.milestones[].done` and `g.smallGoals[].done`.
+   - Ignores `g.smallGoals[].steps[].done`.
+   - For standalone Small Goals: continues using that goal's own `milestones` steps.
+
+## Test Cases
+1. A legacy Active Goal child Small Goal without steps loads unchanged with `steps: []`.
+2. A child Small Goal can be created with the four Khan Academy Algebra 2 example steps.
+3. Nested steps render only under their specific child Small Goal and never leak to another child or Active Goal.
+4. Checking one nested step persists its ID, completion state, and timestamp.
+5. Completing every nested step does not mark the child Small Goal complete and does not change Active Goal progress.
+6. Manually completing the entire child Small Goal increases Active Goal progress exactly once.
+7. Reopening the child Small Goal reduces Active Goal progress while preserving its nested checked steps.
+8. Editing a child Small Goal preserves unchanged nested-step completion states and unknown fields.
+9. Duplicate child-step text retains distinct IDs and independent checked states.
+10. Malformed nested steps fail closed without deleting the valid sibling steps or child Small Goal.
+11. Existing standalone Small Goal step progress remains unchanged.
+12. Export/import, cloud merge, reload, offline, stale/concurrent, delete/restore, empty-device, and suspicious-shrink protections remain green.
+
+## Verification
+1. Run `node --test tests/*.test.js`.
+2. Parse the embedded `goal-app.html` script with `node --check` or `vm.Script`.
+3. Adversarially review data preservation, nested ID targeting, progress calculations, duplicate text, accessibility, and mobile layout.
+4. Before deployment, verify the existing dated recovery backup still matches its recorded hash.
+5. After separate deployment approval, verify the canonical Vercel URL, authenticated `Cloud: v2 ready`, two fresh clients with the same goal IDs/count, nested-step persistence after reload, console/network state, mobile overflow, and rollback commit.
+
+## Stop Point
+No implementation code, saved goal data, Git commit, push, or Vercel deployment will change until this plan is approved. Deployment remains a second explicit approval gate after local implementation and verification.
+
+---
+
 # Plan: Permanent Goal Backup and Simpler Goal Steps (2026-08-10)
 
 ## Refine
@@ -68,6 +157,10 @@ Protect every goal that exists in the signed-in production Goal App before chang
 
 ## Stop Point
 No goal data, implementation code, cloud records, Git history, or Vercel deployment will be changed until this plan is approved. Publishing remains a separate approval gate after local tests and review pass.
+
+## 2026-08-11 clarification - child Small Goal visibility
+
+The combined planning form stays simple for bulk creation, but saved Active Goal cards must visibly render every child Small Goal with its own completion checkbox and its own nested Step checkboxes. Do not hide requested planning detail behind a secondary Manage view when the requested behavior says it must appear in Active Goals / All Goals.
 
 ---
 
