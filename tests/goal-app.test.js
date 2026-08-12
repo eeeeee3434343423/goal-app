@@ -285,6 +285,48 @@ test("save falls back to localStorage when Firebase is unavailable", () => {
   assert.equal(elements.saveStatus.textContent, "Cloud: sign in - saved here");
 });
 
+test("Goal views withhold device-only cache until the first authenticated cloud read completes", () => {
+  const { context, elements } = createHarness([
+    { id: "stale-local", title: "This must not be presented as cloud data" },
+  ]);
+  context.cloudSave.ready = true;
+  context.cloudSave.startupPending = true;
+  context.cloudSave.initialReadDone = false;
+
+  context.render();
+
+  assert.match(elements.activeList.innerHTML, /Loading your saved cloud goals/);
+  assert.doesNotMatch(elements.activeList.innerHTML, /This must not be presented as cloud data/);
+
+  context.cloudSave.startupPending = false;
+  context.cloudSave.initialReadDone = true;
+  context.render();
+  assert.match(elements.activeList.innerHTML, /This must not be presented as cloud data/);
+});
+
+test("Goal creation, import, and export are locked while cloud confirmation is pending", () => {
+  const html = fs.readFileSync(htmlPath, "utf8");
+  const header = html.slice(html.indexOf('<div class="hdr-btns">'), html.indexOf('<div class="banner"'));
+
+  assert.match(header, /if\(canEditOrExportGoals\(\)\)exportGoals\(\)/);
+  assert.match(header, /if\(canEditOrExportGoals\(\)\)importGoals\(this\)/);
+  assert.match(header, /if\(canEditOrExportGoals\(\)\)openForm\(null, 'active'\)/);
+  assert.match(html, /function canEditOrExportGoals\(\)/);
+  assert.match(html, /Cloud still loading - edits are locked/);
+});
+
+test("initial V2 failures are retryable and never leave the Goal UI connecting forever", () => {
+  const html = fs.readFileSync(htmlPath, "utf8");
+  const authStartup = html.slice(html.indexOf("authMod.onAuthStateChanged"), html.indexOf("async function loadCloudGoals"));
+  const clickHandler = html.slice(html.indexOf("function syncClick"), html.indexOf("function progress"));
+
+  assert.match(authStartup, /startGoalV2Sync\(\)\.catch\(handleInitialCloudSyncFailure\)/);
+  assert.match(html, /function handleInitialCloudSyncFailure\(error\)/);
+  assert.match(html, /Cloud sync failed - tap to retry/);
+  assert.match(clickHandler, /if \(cloudSave\.user && !cloudSave\.initialReadDone\)/);
+  assert.match(clickHandler, /retryGoalCloudSync\(\)/);
+});
+
 test("normalization preserves current exported milestone-only data", () => {
   const { context } = createHarness([]);
   const goal = context.normalize({

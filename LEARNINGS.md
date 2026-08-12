@@ -53,3 +53,7 @@
 # 2026-08-11 - Never invent user goals
 
 - Production goal code must never seed, recreate, or migrate example goals into a user's record set. If an earlier build injected known records, identify them by reserved immutable IDs only, move them to recoverable Trash during authenticated v2 startup, and never remove a user goal merely because its title matches an old example.
+
+# 2026-08-11 - Cloud startup must not impersonate parity
+
+- A device cache can be stale or empty even when the cloud record is intact. While the first authenticated cloud read is pending, hide cache-derived goal cards, make the loading state explicit, and surface a retryable failure rather than leaving a misleading `connecting` indicator.

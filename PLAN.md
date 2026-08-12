@@ -1029,6 +1029,32 @@ No implementation code for this addendum will be changed until this plan is appr
 
 # Goal App Cross-Device Sync - Staged Replacement
 
+## 2026-08-11 Incident Repair: Do Not Display Unsynced Goal State
+
+### Refine
+Prevent Goal App from presenting an empty or stale device cache as the signed-in account's data while the first authenticated cloud read is still pending or has failed.
+
+### Approved implementation
+1. `goal-app.html`
+   - Add an explicit cloud-startup state.
+   - Replace goal views with a non-editable “Loading your saved cloud goals” state until the authenticated V2 read is complete.
+   - Catch initial V2 errors, retain local data, show a clear tap-to-retry status, and never leave the button at `Cloud: connecting...` indefinitely.
+   - Retry the initial read when a signed-in user taps the failed sync status; do not sign them out instead.
+   - Leave Firestore records, Trash, migrations, and existing goal data untouched.
+2. `tests/goal-app.test.js`
+   - Add regressions for the startup gate, successful release of the gate, and retryable initial-sync failure.
+3. `LEARNINGS.md`
+   - Record that visible device cache is not proof of cloud parity.
+
+### Verification
+1. `node --test tests/goal-app.test.js`
+2. Extract the inline script and run `node --check`.
+3. Open the deployed Goal page as the authenticated account, verify it reaches `Cloud: v2 ready`, and compare its visible major-goal titles with Hub before a new deployment.
+
+### Boundaries
+No cloud data will be deleted, merged, migrated, or deployed until the code and live authenticated parity checks pass.
+
+
 ## Approved Scope
 1. Replace anonymous authentication with Google sign-in.
 2. Preserve `achieve.goals.v1` local storage, import/export, and every current goal feature.

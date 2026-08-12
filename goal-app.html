@@ -102,13 +102,13 @@
       <p class="sub">Goal tracking built on the Psychology of Achievement</p>
     </div>
     <div class="hdr-btns">
-      <button onclick="exportGoals()">Export</button>
-      <button onclick="document.getElementById('importFile').click()">Import</button>
-      <input type="file" id="importFile" accept=".json" style="display:none" onchange="importGoals(this)">
-      <button onclick="openForm(null, 'daily')">Daily goal</button>
-      <button onclick="openForm(null, 'small')">Small goal</button>
-      <button class="secondary" onclick="openForm(null, 'future')">Future idea</button>
-      <button class="primary" onclick="openForm(null, 'active')">New goal</button>
+      <button onclick="if(canEditOrExportGoals())exportGoals()">Export</button>
+      <button onclick="if(canEditOrExportGoals())document.getElementById('importFile').click()">Import</button>
+      <input type="file" id="importFile" accept=".json" style="display:none" onchange="if(canEditOrExportGoals())importGoals(this)">
+      <button onclick="if(canEditOrExportGoals())openForm(null, 'daily')">Daily goal</button>
+      <button onclick="if(canEditOrExportGoals())openForm(null, 'small')">Small goal</button>
+      <button class="secondary" onclick="if(canEditOrExportGoals())openForm(null, 'future')">Future idea</button>
+      <button class="primary" onclick="if(canEditOrExportGoals())openForm(null, 'active')">New goal</button>
       <button id="saveStatus" class="sub" style="align-self:center;border:1px solid var(--border);background:var(--card);border-radius:8px;padding:7px 10px;cursor:pointer" onclick="syncClick()" title="Cross-device sync">Cloud: sign in</button>
     </div>
   </header>
@@ -240,7 +240,7 @@ var FIREBASE_CONFIG = {
 };
 var SYNC_UPDATED_KEY = "achieve.goals.sync.updatedAt";
 var applyingCloud = false;
-var cloudSave = { ready: false, user: null, auth: null, authMod: null, docRef: null, setDoc: null, getDoc: null, onSnapshot: null, unsubscribe: null, initialReadDone: true };
+var cloudSave = { ready: false, user: null, auth: null, authMod: null, docRef: null, setDoc: null, getDoc: null, onSnapshot: null, unsubscribe: null, initialReadDone: true, startupPending: false };
 
 function esc(s){ return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
 function uid(){ return "g" + Date.now() + Math.floor(Math.random() * 10000); }
@@ -540,6 +540,13 @@ function setSaveStatus(text){
   var el = document.getElementById("saveStatus");
   if (el) el.textContent = text;
 }
+function canEditOrExportGoals(){
+  if (cloudSave.startupPending && !cloudSave.initialReadDone){
+    setSaveStatus("Cloud still loading - edits are locked");
+    return false;
+  }
+  return true;
+}
 function saveLocalGoals(){
   if (DEMO) return;
   try {
@@ -560,7 +567,10 @@ function hasFirebaseConfig(){
 async function initCloudSave(){
   if (DEMO || !hasFirebaseConfig()) return;
   if (location.protocol === "file:") { setSaveStatus("Cloud: device only"); return; }
+  cloudSave.initialReadDone = false;
+  cloudSave.startupPending = true;
   setSaveStatus("Cloud: connecting...");
+  render();
   try {
     var appMod = await import("https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js");
     var authMod = await import("https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js");
@@ -587,14 +597,41 @@ async function initCloudSave(){
       cloudSave.user = user;
       cloudSave.initialReadDone = false;
       if (cloudSave.unsubscribe) { cloudSave.unsubscribe(); cloudSave.unsubscribe = null; }
-      if (!user) { cloudSave.docRef = null; setSaveStatus("Cloud: signed out - tap to sign in"); return; }
+      if (!user) {
+        cloudSave.docRef = null;
+        cloudSave.initialReadDone = true;
+        cloudSave.startupPending = false;
+        setSaveStatus("Cloud: signed out - tap to sign in");
+        render();
+        return;
+      }
       cloudSave.docRef = fireMod.doc(db, "users", user.uid, "appdata", KEY);
-      await startGoalV2Sync();
+      cloudSave.startupPending = true;
+      render();
+      startGoalV2Sync().catch(handleInitialCloudSyncFailure);
     });
   } catch(e){
     cloudSave.ready = false;
+    cloudSave.startupPending = false;
+    cloudSave.initialReadDone = true;
     setSaveStatus("Cloud unavailable");
+    render();
   }
+}
+function handleInitialCloudSyncFailure(error){
+  cloudSave.startupPending = false;
+  cloudSave.initialReadDone = false;
+  console.warn("Goal cloud startup failed", error && error.code, error && error.message);
+  setSaveStatus("Cloud sync failed - tap to retry");
+  render();
+}
+function retryGoalCloudSync(){
+  if (!cloudSave.ready || !cloudSave.user || cloudSave.startupPending) return;
+  cloudSave.initialReadDone = false;
+  cloudSave.startupPending = true;
+  setSaveStatus("Cloud: retrying...");
+  render();
+  startGoalV2Sync().catch(handleInitialCloudSyncFailure);
 }
 async function loadCloudGoals(){
   if (!cloudSave.ready || !cloudSave.docRef || !cloudSave.getDoc) return null;
@@ -694,7 +731,9 @@ async function startGoalV2Sync(){
     }
   }, 15000);
   cloudSave.unsubscribe = function(){ clearInterval(poll); };
+  cloudSave.startupPending = false;
   setSaveStatus("Cloud: v2 ready");
+  render();
 }
 async function startGoalSync(){
   try {
@@ -756,6 +795,7 @@ function applyCloudEnvelope(envelope){
 }
 function syncClick(){
   if (!cloudSave.ready || !cloudSave.authMod || !cloudSave.auth) return;
+  if (cloudSave.user && !cloudSave.initialReadDone){ retryGoalCloudSync(); return; }
   if (cloudSave.user){
     if (confirm("Sign out of cloud sync on this device?")) cloudSave.authMod.signOut(cloudSave.auth);
     return;
@@ -944,6 +984,16 @@ function applyViewVisibility(){
   setViewTab("viewVictories", isVictories);
 }
 function render(){
+  if (cloudSave.startupPending && !cloudSave.initialReadDone){
+    document.getElementById("banner").style.display = "none";
+    document.getElementById("activeList").innerHTML = '<div class="empty"><b>Loading your saved cloud goals.</b><br>Your device cache is hidden until the account data is confirmed. Do not edit goals until this finishes.</div>';
+    document.getElementById("dailyList").innerHTML = "";
+    document.getElementById("smallList").innerHTML = "";
+    document.getElementById("futureList").innerHTML = "";
+    document.getElementById("doneWrap").innerHTML = "";
+    applyViewVisibility();
+    return;
+  }
   var active = goals.filter(function(g){ return g.goalType !== "future" && g.goalType !== "small" && g.goalType !== "daily" && !g.achievedAt; }).sort(activeSort);
   var activeFocus = splitFocusLists(active, ACTIVE_FOCUS_LIMIT);
   var daily = goals.filter(function(g){ return g.goalType === "daily" && !g.achievedAt; }).sort(function(a, b){ return (a.focusOrder || 0) - (b.focusOrder || 0); });
