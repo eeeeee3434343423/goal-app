@@ -69,7 +69,18 @@ test("v2 startup never auto-trashes approved saved goals", () => {
   const startup = html.slice(html.indexOf("async function startGoalV2Sync"), html.indexOf("async function startGoalSync"));
   assert.doesNotMatch(startup, /moveRecordToTrash\(/);
   assert.match(startup, /migrationGoals = removeKnownGoalContamination\(migrationGoals\)/);
-  assert.match(startup, /cloudRecords = removeKnownGoalContaminationRecords\(await loadV2Records\("goals"\)\)/);
+  assert.match(startup, /cloudRecords = rememberGoalCloudRecords\(await loadV2Records\("goals"\)\)/);
+});
+
+test("quarantined cloud records remain in sync writes without rendering as goals", () => {
+  const html = fs.readFileSync(htmlPath, "utf8");
+  assert.match(html, /function rememberGoalCloudRecords\(records\)/);
+  assert.match(html, /function syncableGoals\(\)/);
+  const cloudSave = html.slice(html.indexOf("async function saveCloudGoals"), html.indexOf("async function startGoalV2Sync"));
+  const startup = html.slice(html.indexOf("async function startGoalV2Sync"), html.indexOf("async function startGoalSync"));
+  assert.match(cloudSave, /syncV2Records\("goals", syncableGoals\(\), "goal"\)/);
+  assert.match(startup, /rememberGoalCloudRecords\(await loadV2Records\("goals"\)\)/);
+  assert.match(startup, /syncV2Records\("goals", syncableGoals\(\), "goal"\)/);
 });
 
 test("Recovery lists only Trash records that are not already live", () => {

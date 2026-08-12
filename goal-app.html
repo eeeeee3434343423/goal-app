@@ -240,7 +240,7 @@ var FIREBASE_CONFIG = {
 };
 var SYNC_UPDATED_KEY = "achieve.goals.sync.updatedAt";
 var applyingCloud = false;
-var cloudSave = { ready: false, user: null, auth: null, authMod: null, docRef: null, setDoc: null, getDoc: null, onSnapshot: null, unsubscribe: null, initialReadDone: true, startupPending: false };
+var cloudSave = { ready: false, user: null, auth: null, authMod: null, docRef: null, setDoc: null, getDoc: null, onSnapshot: null, unsubscribe: null, initialReadDone: true, startupPending: false, hiddenGoalPayloads: [] };
 
 function esc(s){ return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
 function uid(){ return "g" + Date.now() + Math.floor(Math.random() * 10000); }
@@ -457,6 +457,22 @@ function removeKnownGoalContamination(items){
 function removeKnownGoalContaminationRecords(records){
   return (Array.isArray(records) ? records : []).filter(function(record){ return !KNOWN_GOAL_CONTAMINATION_IDS[String(record && record.id || "")]; });
 }
+function rememberGoalCloudRecords(records){
+  records = Array.isArray(records) ? records : [];
+  cloudSave.hiddenGoalPayloads = records.filter(function(record){
+    return KNOWN_GOAL_CONTAMINATION_IDS[String(record && record.id || "")];
+  }).map(function(record){ return record.payload; }).filter(function(payload){ return payload && typeof payload === "object"; });
+  return removeKnownGoalContaminationRecords(records);
+}
+function syncableGoals(){
+  var visible = storedGoals(), seen = {};
+  visible.forEach(function(goal){ seen[String(goal && goal.id || "")] = true; });
+  (cloudSave.hiddenGoalPayloads || []).forEach(function(payload){
+    var id = String(payload && payload.id || "");
+    if (id && KNOWN_GOAL_CONTAMINATION_IDS[id] && !seen[id]) { visible.push(payload); seen[id] = true; }
+  });
+  return visible;
+}
 function load(){
   if (DEMO){
     goals = [
@@ -659,7 +675,7 @@ async function saveCloudGoals(){
       setSaveStatus("Cloud: synced " + legacyWho + " " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
       return;
     }
-    await syncV2Records("goals", storedGoals(), "goal");
+    await syncV2Records("goals", syncableGoals(), "goal");
     var who = (cloudSave.user.displayName || cloudSave.user.email || "me").split(" ")[0];
     setSaveStatus("Cloud: synced " + who + " " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
   } catch(e){
@@ -678,7 +694,7 @@ async function startGoalV2Sync(){
     deviceId: deviceId,
     port: createModernV2Port(cloudSave.db, cloudSave.fireMod, cloudSave.user.uid)
   });
-  var cloudRecords = removeKnownGoalContaminationRecords(await loadV2Records("goals"));
+  var cloudRecords = rememberGoalCloudRecords(await loadV2Records("goals"));
   var migrationGoals = storedGoals();
   var legacySnap = await cloudSave.getDoc(cloudSave.docRef);
   if (legacySnap.exists()) {
@@ -695,20 +711,20 @@ async function startGoalV2Sync(){
   }
   migrationGoals = removeKnownGoalContamination(migrationGoals);
   await migrateLegacyEnvelopeOnce(migrationGoals, "goal");
-  cloudRecords = removeKnownGoalContaminationRecords(await loadV2Records("goals"));
+  cloudRecords = rememberGoalCloudRecords(await loadV2Records("goals"));
   if (cloudRecords.length) {
     applyingCloud = true;
     goals = removeKnownGoalContamination(normalizeGoals(cloudRecords.map(function(record){ return record.payload; })));
     localStorage.setItem(KEY, JSON.stringify(storedGoals()));
     applyingCloud = false;
     render();
-    await syncV2Records("goals", storedGoals(), "goal");
+    await syncV2Records("goals", syncableGoals(), "goal");
   }
   cloudSave.initialReadDone = true;
   var poll = setInterval(async function(){
     if (!cloudSave.user || applyingCloud) return;
     try {
-      var latest = removeKnownGoalContaminationRecords(await loadV2Records("goals"));
+      var latest = rememberGoalCloudRecords(await loadV2Records("goals"));
       var next = removeKnownGoalContamination(normalizeGoals(latest.map(function(record){ return record.payload; })));
       storedGoals().forEach(function(localGoal){
         var localId = v2RecordIdFor(localGoal, "goal");
