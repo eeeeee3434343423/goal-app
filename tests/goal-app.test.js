@@ -34,22 +34,32 @@ test("dark theme gives controls explicit readable foregrounds", () => {
   assert.ok(contrast("#030712", "#4DA3FF") >= 4.5);
 });
 
-test("requested goals are added once without replacing matching user records", () => {
+test("legacy injected goals are removed by reserved ID without deleting user goals with matching titles", () => {
   const html = fs.readFileSync(htmlPath, "utf8");
   const start = html.indexOf("function normalizedGoalTitle");
   const end = html.indexOf("function goalPayloadEmpty", start);
   assert.ok(start >= 0 && end > start);
-  const context = { Date, normalize: (goal) => goal };
+  const context = { Date };
   vm.createContext(context);
   vm.runInContext(html.slice(start, end), context);
-  const existing = { id: "mine", title: " Belgian   Malinois ", custom: 42 };
-  const twice = context.ensureRequestedGoals(context.ensureRequestedGoals([existing]));
-  assert.equal(twice.filter((goal) => context.normalizedGoalTitle(goal.title) === "belgian malinois").length, 1);
-  assert.equal(twice.filter((goal) => context.normalizedGoalTitle(goal.title) === "get contacts").length, 1);
-  assert.equal(twice.filter((goal) => context.normalizedGoalTitle(goal.title) === "paint room").length, 1);
-  assert.equal(twice.find((goal) => goal.id === "mine").custom, 42);
-  assert.equal(twice.find((goal) => goal.title === "Get Contacts").goalType, "future");
-  assert.ok(twice.find((goal) => goal.title === "Paint Room").achievedAt);
+  const current = [
+    { id: "mine", title: "Belgian Malinois", custom: 42 },
+    { id: "requested-belgian-malinois", title: "Belgian Malinois", goalType: "future" },
+    { id: "requested-get-contacts", title: "Get Contacts", goalType: "future" },
+    { id: "requested-paint-room", title: "Paint Room", achievedAt: 1 },
+  ];
+  const cleaned = context.removeRetiredSeedGoals(current);
+  assert.deepEqual(JSON.parse(JSON.stringify(cleaned)), [{ id: "mine", title: "Belgian Malinois", custom: 42 }]);
+  assert.doesNotMatch(html, /function ensureRequestedGoals/);
+});
+
+test("v2 startup moves only retired injected goal records to Trash before projecting goals", () => {
+  const html = fs.readFileSync(htmlPath, "utf8");
+  const startup = html.slice(html.indexOf("async function startGoalV2Sync"), html.indexOf("async function startGoalSync"));
+  assert.match(startup, /var retiredRecords = retiredSeedGoalRecords\(cloudRecords\)/);
+  assert.match(startup, /moveRecordToTrash\("goal", retiredRecords\[retiredIndex\]\.id, retiredRecords\[retiredIndex\]\.revision\)/);
+  assert.match(startup, /migrationGoals = removeRetiredSeedGoals\(migrationGoals\)/);
+  assert.doesNotMatch(startup, /ensureRequestedGoals/);
 });
 
 test("production demo loader is absent", () => {

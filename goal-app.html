@@ -442,24 +442,16 @@ function normalizeGoals(items){
 function normalizedGoalTitle(value){
   return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
 }
-function ensureRequestedGoals(items){
-  var result = Array.isArray(items) ? items.slice() : [];
-  var titles = {};
-  result.forEach(function(goal){ titles[normalizedGoalTitle(goal && (goal.title || goal.name))] = true; });
-  [
-    { id: "requested-belgian-malinois", title: "Belgian Malinois", goalType: "future", description: "Future goal" },
-    { id: "requested-get-contacts", title: "Get Contacts", goalType: "future", description: "Future goal" },
-    { id: "requested-paint-room", title: "Paint Room", goalType: "active", achievedAt: 1, description: "Victory" }
-  ].forEach(function(seed){
-    var key = normalizedGoalTitle(seed.title);
-    if (!titles[key]) {
-      var next = Object.assign({}, seed);
-      if (next.achievedAt) next.achievedAt = Date.now();
-      result.push(normalize(next));
-      titles[key] = true;
-    }
-  });
-  return result;
+var RETIRED_SEED_GOAL_IDS = {
+  "requested-belgian-malinois": true,
+  "requested-get-contacts": true,
+  "requested-paint-room": true
+};
+function removeRetiredSeedGoals(items){
+  return (Array.isArray(items) ? items : []).filter(function(goal){ return !RETIRED_SEED_GOAL_IDS[String(goal && goal.id || "")]; });
+}
+function retiredSeedGoalRecords(records){
+  return (Array.isArray(records) ? records : []).filter(function(record){ return RETIRED_SEED_GOAL_IDS[String(record && record.id || "")]; });
 }
 function load(){
   if (DEMO){
@@ -470,10 +462,10 @@ function load(){
     ];
     return;
   }
-  try { goals = normalizeGoals(JSON.parse(localStorage.getItem(KEY)) || []); }
+  try { goals = removeRetiredSeedGoals(normalizeGoals(JSON.parse(localStorage.getItem(KEY)) || [])); }
   catch(e){ goals = []; }
 }
-function storedGoals(){ return normalizeGoals(goals); }
+function storedGoals(){ return removeRetiredSeedGoals(normalizeGoals(goals)); }
 function goalPayloadEmpty(value){
   if (value === null || value === undefined || value === "") return true;
   try { var parsed = JSON.parse(value); return !Array.isArray(parsed) || parsed.length === 0; }
@@ -646,7 +638,12 @@ async function startGoalV2Sync(){
     port: createModernV2Port(cloudSave.db, cloudSave.fireMod, cloudSave.user.uid)
   });
   var cloudRecords = await loadV2Records("goals");
-  var migrationGoals = ensureRequestedGoals(storedGoals());
+  var retiredRecords = retiredSeedGoalRecords(cloudRecords);
+  for (var retiredIndex = 0; retiredIndex < retiredRecords.length; retiredIndex += 1) {
+    await moveRecordToTrash("goal", retiredRecords[retiredIndex].id, retiredRecords[retiredIndex].revision);
+  }
+  if (retiredRecords.length) cloudRecords = await loadV2Records("goals");
+  var migrationGoals = storedGoals();
   var legacySnap = await cloudSave.getDoc(cloudSave.docRef);
   if (legacySnap.exists()) {
     var legacyData = legacySnap.data() || {};
@@ -660,11 +657,12 @@ async function startGoalV2Sync(){
       ).items;
     }
   }
+  migrationGoals = removeRetiredSeedGoals(migrationGoals);
   await migrateLegacyEnvelopeOnce(migrationGoals, "goal");
   cloudRecords = await loadV2Records("goals");
   if (cloudRecords.length) {
     applyingCloud = true;
-    goals = ensureRequestedGoals(normalizeGoals(cloudRecords.map(function(record){ return record.payload; })));
+    goals = removeRetiredSeedGoals(normalizeGoals(cloudRecords.map(function(record){ return record.payload; })));
     localStorage.setItem(KEY, JSON.stringify(storedGoals()));
     applyingCloud = false;
     render();
@@ -675,7 +673,7 @@ async function startGoalV2Sync(){
     if (!cloudSave.user || applyingCloud) return;
     try {
       var latest = await loadV2Records("goals");
-      var next = ensureRequestedGoals(normalizeGoals(latest.map(function(record){ return record.payload; })));
+      var next = removeRetiredSeedGoals(normalizeGoals(latest.map(function(record){ return record.payload; })));
       storedGoals().forEach(function(localGoal){
         var localId = v2RecordIdFor(localGoal, "goal");
         if (!isV2RecordPending("goals", localId)) return;

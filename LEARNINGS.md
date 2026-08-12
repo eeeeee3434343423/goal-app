@@ -49,3 +49,7 @@
 # 2026-08-11 - Requested child-step visibility
 
 - When the user asks for child Small Goals and their Steps to appear in Active Goals / All Goals, render that structure directly on the saved Active Goal card. A Manage panel may support editing, but it must not hide the requested primary display.
+
+# 2026-08-11 - Never invent user goals
+
+- Production goal code must never seed, recreate, or migrate example goals into a user's record set. If an earlier build injected known records, identify them by reserved immutable IDs only, move them to recoverable Trash during authenticated v2 startup, and never remove a user goal merely because its title matches an old example.
