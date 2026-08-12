@@ -82,19 +82,24 @@
   window.migrateLegacyEnvelopeOnce = async function (legacyEnvelope, recordType) {
     var collectionName = collectionFor(recordType);
     var existing = await window.loadV2Records(collectionName);
+    var trash = await requireConfig().port.list("trash");
     var report = safety.migrateLegacyEnvelopeOnce(legacyEnvelope, recordType);
     var existingById = Object.create(null);
+    var trashedById = Object.create(null);
     existing.forEach(function (record) { existingById[record.id] = record; });
+    trash.forEach(function (entry) {
+      if (entry && entry.recordType === recordType) trashedById[String(entry.recordId)] = true;
+    });
     var migrated = 0;
     for (var index = 0; index < report.records.length; index += 1) {
       var record = report.records[index];
-      if (existingById[record.id]) continue;
+      if (existingById[record.id] || trashedById[record.id]) continue;
       await window.commitRecordMutation({ recordType: recordType, id: record.id, payload: record.payload }, 0);
       migrated += 1;
     }
     var complete = await window.loadV2Records(collectionName);
     var missing = report.records.filter(function (record) {
-      return !complete.some(function (current) { return current.id === record.id; });
+      return !trashedById[record.id] && !complete.some(function (current) { return current.id === record.id; });
     });
     if (missing.length) throw new Error("Legacy migration parity check failed.");
     return { records: complete, migrated: migrated, alreadyComplete: migrated === 0 };

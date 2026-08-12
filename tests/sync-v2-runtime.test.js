@@ -9,7 +9,7 @@ const vm = require("node:vm");
 test("existing v2 goal records win over stale legacy payloads during migration", () => {
   const api = fs.readFileSync(path.join(__dirname, "..", "sync-v2-api.js"), "utf8");
   assert.doesNotMatch(api, /Legacy migration conflict/);
-  assert.match(api, /if \(existingById\[record\.id\]\) continue;/);
+  assert.match(api, /if \(existingById\[record\.id\] \|\| trashedById\[record\.id\]\) continue;/);
 });
 
 function runtime() {
@@ -145,8 +145,30 @@ test("stale revisions propagate a controlled conflict", async () => {
 
 test("Goal runtime authenticates into modern v2 and does not invoke legacy startup", () => {
   const html = fs.readFileSync(path.join(__dirname, "..", "goal-app.html"), "utf8");
+  const modernPort = fs.readFileSync(path.join(__dirname, "..", "sync-v2-firestore-modern.js"), "utf8");
   assert.match(html, /createModernV2Port/);
   assert.match(html, /startGoalV2Sync\(\)\.catch\(handleInitialCloudSyncFailure\)/);
   assert.doesNotMatch(html, /await startGoalSync\(\)/);
   assert.match(html, /moveRecordToTrash\("goal"/);
+  assert.match(modernPort, /recordType === "goal" \? ref\("appdata", "achieve\.goals\.v1"\) : null/);
+  assert.match(modernPort, /durableTombstones\[recordId\] = Date\.now\(\)/);
+  assert.match(modernPort, /tx\.set\(legacyRef, \{ tombstones: durableTombstones, updatedAt: Date\.now\(\) \}, \{ merge: true \}\)/);
+});
+
+test("a stale second device cannot remigrate a goal that already exists in cloud Trash", async () => {
+  const { context, records, port } = runtime();
+  await context.configureV2Sync({ uid: "u1", deviceId: "device-a", port });
+  await context.migrateLegacyEnvelopeOnce([{ id: "major-1", title: "Major goal" }], "goal");
+  await context.loadV2Records("goals");
+  await context.moveRecordToTrash("goal", "major-1", 1);
+  assert.equal(records.goals.length, 0);
+  assert.equal(records.trash.length, 1);
+
+  await context.configureV2Sync({ uid: "u1", deviceId: "stale-device-b", port });
+  const secondMigration = await context.migrateLegacyEnvelopeOnce([{ id: "major-1", title: "Major goal" }], "goal");
+
+  assert.equal(secondMigration.migrated, 0);
+  assert.equal(secondMigration.alreadyComplete, true);
+  assert.equal(records.goals.length, 0);
+  assert.equal(records.trash.length, 1);
 });

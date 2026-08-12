@@ -34,9 +34,11 @@
       trash: function (name, recordType, recordId, expectedRevision, deviceId) {
         var liveRef = ref(name, recordId);
         var trashRef = ref("trash", recordType + "__" + recordId);
+        var legacyRef = recordType === "goal" ? ref("appdata", "achieve.goals.v1") : null;
         var result;
         return fire.runTransaction(db, async function (tx) {
           var snap = await tx.get(liveRef);
+          var legacySnap = legacyRef ? await tx.get(legacyRef) : null;
           if (!snap.exists()) throw new Error("Record not found.");
           var current = snap.data();
           if (current.revision !== expectedRevision) throw conflict();
@@ -46,6 +48,12 @@
             deletedAt: fire.serverTimestamp(),
             purgeAfter: new Date(Date.now() + 30 * 86400000)
           };
+          if (legacySnap && legacySnap.exists()) {
+            var legacyData = legacySnap.data() || {};
+            var durableTombstones = Object.assign({}, legacyData.tombstones || {});
+            durableTombstones[recordId] = Date.now();
+            tx.set(legacyRef, { tombstones: durableTombstones, updatedAt: Date.now() }, { merge: true });
+          }
           tx.set(trashRef, result);
           tx.delete(liveRef);
           tx.set(eventRef(), {

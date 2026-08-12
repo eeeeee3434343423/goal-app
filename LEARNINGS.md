@@ -62,3 +62,10 @@
 
 - A record added for a user's explicit request is user data even if code originally created it. Never later classify it as a disposable seed. Exact incident contamination may be excluded by immutable record ID, but approved saved records must remain visible and must never be auto-Trashed during startup.
 - Authenticated startup must be read-only after resumable migration. Rewriting every normalized record on each open creates revision races when phone, desktop, or two tabs connect together; only explicit user edits should enter the ordinary record-update path.
+
+# 2026-08-11 - Destructive controls must be visible and recoverable
+
+- When Major Goal deletion is required, expose it directly on each active Major Goal card instead of hiding it only inside Edit. Route the card and modal controls through one confirmed Trash-backed function so cancellation and cloud failures preserve the record.
+- Cloud Trash must be consulted during legacy migration. A local or legacy array can retain a deleted goal indefinitely; without a Trash exclusion, a stale device can recreate the live record after a correct cloud deletion.
+- Do not promise recoverable deletion while signed out. Block it until the authenticated v2 read completes, and lock each record while its Trash transaction is running so double-clicks cannot submit the same revision twice.
+- Expiring Trash is a recovery payload, not a permanent deletion marker. A durable legacy tombstone must be written in the same transaction as the live-to-Trash move so stale whole-array backups cannot resurrect the goal after Trash retention ends.

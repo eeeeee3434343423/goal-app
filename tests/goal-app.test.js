@@ -155,6 +155,140 @@ test("every static Goal button handler resolves to implemented functions", () =>
   assert.deepEqual(missing, []);
 });
 
+test("active Major Goal cards expose a directly labeled Delete button", () => {
+  const { context, elements } = createHarness([
+    { id: "major-1", title: "Major goal", goalType: "active" },
+    { id: "mdp-1", title: "My definite purpose", goalType: "active", mdp: true },
+  ]);
+
+  context.render();
+
+  assert.match(elements.activeList.innerHTML, /aria-label="Delete Major goal"[^>]*onclick="deleteGoalById\('major-1'\)"/);
+  assert.match(elements.activeList.innerHTML, /aria-label="Delete My definite purpose"[^>]*onclick="deleteGoalById\('mdp-1'\)"/);
+});
+
+test("Major Goal deletion cancellation preserves every goal", async () => {
+  const { context, storage } = createHarness([
+    { id: "major-1", title: "Major goal", goalType: "active" },
+    { id: "major-2", title: "Keep me", goalType: "active" },
+  ]);
+  context.confirmValue = false;
+
+  const deleted = await context.deleteGoalById("major-1");
+
+  assert.equal(deleted, false);
+  assert.deepEqual(Array.from(context.goals, (goal) => goal.id), ["major-1", "major-2"]);
+  assert.equal(storage["achieve.goals.v1.tombstones"], undefined);
+});
+
+test("Major Goal deletion waits for the authenticated cloud read", async () => {
+  const { context, elements, storage } = createHarness([
+    { id: "major-1", title: "Major goal", goalType: "active" },
+  ]);
+  context.cloudSave.user = { uid: "same-user" };
+  context.cloudSave.initialReadDone = false;
+
+  const deleted = await context.deleteGoalById("major-1");
+
+  assert.equal(deleted, false);
+  assert.deepEqual(Array.from(context.goals, (goal) => goal.id), ["major-1"]);
+  assert.equal(elements.saveStatus.textContent, "Delete blocked: wait for cloud confirmation");
+  assert.equal(storage["achieve.goals.v1.tombstones"], undefined);
+});
+
+test("Major Goal deletion is blocked while signed out because local-only removal is not recoverable", async () => {
+  const { context, elements, storage } = createHarness([
+    { id: "major-1", title: "Major goal", goalType: "active" },
+  ]);
+  context.cloudSave.user = null;
+
+  const deleted = await context.deleteGoalById("major-1");
+
+  assert.equal(deleted, false);
+  assert.deepEqual(Array.from(context.goals, (goal) => goal.id), ["major-1"]);
+  assert.equal(elements.saveStatus.textContent, "Delete blocked: sign in and wait for cloud sync");
+  assert.equal(storage["achieve.goals.v1.tombstones"], undefined);
+});
+
+test("Major Goal deletion ignores a concurrent second click while Trash is pending", async () => {
+  const { context } = createHarness([
+    { id: "major-1", title: "Major goal", goalType: "active" },
+  ]);
+  let releaseTrash;
+  let moveCalls = 0;
+  context.cloudSave.user = { uid: "same-user" };
+  context.cloudSave.initialReadDone = true;
+  context.getV2RecordRevision = () => 4;
+  context.moveRecordToTrash = async () => {
+    moveCalls += 1;
+    await new Promise((resolve) => { releaseTrash = resolve; });
+  };
+
+  const firstDelete = context.deleteGoalById("major-1");
+  await new Promise((resolve) => setImmediate(resolve));
+  const secondDelete = await context.deleteGoalById("major-1");
+  assert.equal(secondDelete, false);
+  assert.equal(moveCalls, 1);
+  releaseTrash();
+  assert.equal(await firstDelete, true);
+  assert.equal(moveCalls, 1);
+});
+
+test("Major Goal deletion moves only that cloud record to recoverable Trash and survives reload", async () => {
+  const { context, storage } = createHarness([
+    { id: "major-1", title: "Major goal", goalType: "active", mdp: true },
+    { id: "major-2", title: "Keep me", goalType: "active" },
+  ]);
+  const moves = [];
+  context.cloudSave.user = { uid: "same-user" };
+  context.cloudSave.initialReadDone = true;
+  context.getV2RecordRevision = () => 7;
+  context.moveRecordToTrash = async (...args) => moves.push(args);
+
+  const deleted = await context.deleteGoalById("major-1");
+
+  assert.equal(deleted, true);
+  assert.deepEqual(moves, [["goal", "major-1", 7]]);
+  assert.deepEqual(Array.from(context.goals, (goal) => goal.id), ["major-2"]);
+  assert.ok(JSON.parse(storage["achieve.goals.v1.tombstones"])["major-1"]);
+  assert.deepEqual(JSON.parse(storage["achieve.goals.v1"]).map((goal) => goal.id), ["major-2"]);
+  assert.deepEqual(Array.from(createHarness(JSON.parse(storage["achieve.goals.v1"])).context.goals, (goal) => goal.id), ["major-2"]);
+});
+
+test("durable legacy tombstones keep a deleted Major Goal excluded after cloud Trash expires", () => {
+  const { context } = createHarness([{ id: "major-1", title: "Major goal", goalType: "active" }]);
+  const staleDeviceValue = JSON.stringify([{ id: "major-1", title: "Major goal", goalType: "active" }]);
+  const expiredTrash = [];
+
+  const migrationInput = context.mergeGoalSyncValues(
+    staleDeviceValue,
+    staleDeviceValue,
+    1,
+    2,
+    { "major-1": 123456789 }
+  ).items;
+
+  assert.deepEqual(Array.from(migrationInput), []);
+  assert.deepEqual(expiredTrash, []);
+});
+
+test("Major Goal cloud Trash failure preserves the goal and reports the error", async () => {
+  const { context, elements, storage } = createHarness([
+    { id: "major-1", title: "Major goal", goalType: "active" },
+  ]);
+  context.cloudSave.user = { uid: "same-user" };
+  context.cloudSave.initialReadDone = true;
+  context.getV2RecordRevision = () => 3;
+  context.moveRecordToTrash = async () => { throw new Error("revision conflict"); };
+
+  const deleted = await context.deleteGoalById("major-1");
+
+  assert.equal(deleted, false);
+  assert.deepEqual(Array.from(context.goals, (goal) => goal.id), ["major-1"]);
+  assert.equal(elements.saveStatus.textContent, "Delete blocked: revision conflict");
+  assert.equal(storage["achieve.goals.v1.tombstones"], undefined);
+});
+
 function extractScript() {
   const html = fs.readFileSync(htmlPath, "utf8");
   const match = html.match(/<script>([\s\S]*)<\/script>/);

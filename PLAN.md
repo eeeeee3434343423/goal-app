@@ -1110,3 +1110,32 @@ Approved scope removes demo-loading code and idempotently seeds Belgian Malinois
 
 Approved Wakeup palette applied to native controls, inputs, active tabs, placeholders, disabled states, and generated action buttons. The full 87-test suite passes with explicit foreground regressions.
 
+# Approved: visible Major Goal deletion (2026-08-11)
+
+## Requested outcome
+
+Every active Major Goal card, including the Major Definite Purpose, has a visible Delete button. Deletion must require confirmation, remove only the selected goal, sync across signed-in devices, and remain recoverable from 30-day Trash.
+
+## Planned files and interfaces
+
+1. `goal-app.html`
+   - Add `deleteGoalById(id) -> Promise<boolean>` as the single deletion path.
+   - Keep `deleteGoal() -> Promise<boolean>` as the edit-modal wrapper that calls `deleteGoalById(editId)`.
+   - Add a clearly labeled `Delete <goal title>` button directly to each active Major Goal card.
+   - On cancellation or cloud/Trash failure, preserve the goal and display the failure; on success, write the tombstone, save, rerender, and close the editor only when applicable.
+2. `tests/goal-app.test.js`
+   - Prove active Major Goal and MDP cards render the correct direct Delete control.
+   - Prove confirmation cancel changes nothing.
+   - Prove successful deletion moves the exact v2 record to Trash, records its tombstone, removes only that goal, and survives reload.
+   - Prove a cloud failure preserves the goal and reports the error.
+   - Re-run the static handler audit so every rendered button references an implemented function.
+3. `sync-v2-api.js` and `tests/sync-v2-runtime.test.js`
+   - Treat a matching cloud Trash record as a durable deletion marker during legacy migration so a stale second device cannot recreate the deleted Major Goal.
+   - Prove migrate, delete, and fresh-device remigration leaves the goal deleted and recoverable.
+   - Atomically preserve a durable tombstone in the legacy Goal envelope during the cloud Trash transaction so deletion remains permanent after the 30-day recoverable Trash payload expires.
+4. `LEARNINGS.md`
+   - Record that destructive actions users need must be visible on the relevant card, while retaining confirmation and recoverability.
+
+## Verification and release
+
+Run the complete Goal suite, syntax and diff checks, then review the diff for accidental multi-goal removal, revision races, inaccessible button labels, and delete-on-cancel behavior. After approval to implement this plan, deploy to the canonical Goal URL and use a disposable Major Goal to verify create, delete, reload, Trash visibility, two authenticated clients, and zero console errors without touching the user's saved goals.
