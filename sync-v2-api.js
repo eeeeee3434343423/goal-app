@@ -161,7 +161,12 @@
     button.textContent = "Recovery";
     button.title = "Open cloud Trash and restore deleted records";
     button.style.cssText = "position:fixed;right:16px;bottom:16px;z-index:9999;padding:9px 12px;border:1px solid #777;border-radius:8px;background:#fff;color:#222";
-    button.addEventListener("click", function () { window.showV2Recovery().catch(function (error) { window.alert(error.message); }); });
+    button.addEventListener("click", function () {
+      window.showV2Recovery().catch(function (error) {
+        console.error("Goal Recovery failed", error && error.code, error && error.message);
+        window.alert("Recovery error: " + (error && error.message ? error.message : error));
+      });
+    });
     document.body.appendChild(button);
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", addRecoveryButton);
