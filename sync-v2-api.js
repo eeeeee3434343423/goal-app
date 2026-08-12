@@ -142,16 +142,61 @@
     var results = await Promise.all([active.port.list("goals"), active.port.list("hubApps"), active.port.list("trash"), active.port.list("changeLog")]);
     return safety.exportRecoveryBundle({ records: results[0].concat(results[1]), trash: results[2], changeLog: results[3] });
   };
+  function recoveryPanel() {
+    var panel = document.getElementById("v2-recovery-panel");
+    if (panel) return panel;
+    panel = document.createElement("section");
+    panel.id = "v2-recovery-panel";
+    panel.setAttribute("role", "dialog");
+    panel.setAttribute("aria-modal", "true");
+    panel.setAttribute("aria-labelledby", "v2-recovery-title");
+    panel.style.cssText = "display:none;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.72);padding:32px 16px;overflow:auto";
+    var card = document.createElement("div");
+    card.style.cssText = "max-width:620px;margin:0 auto;background:#07111F;color:#F5F7FA;border:1px solid #283140;border-radius:14px;padding:20px";
+    var title = document.createElement("h2");
+    title.id = "v2-recovery-title";
+    title.textContent = "Recovery - 30-day Trash";
+    var list = document.createElement("div");
+    list.id = "v2-recovery-list";
+    var close = document.createElement("button");
+    close.type = "button";
+    close.textContent = "Close Recovery";
+    close.style.cssText = "margin-top:16px;padding:9px 12px";
+    close.addEventListener("click", function () { panel.style.display = "none"; });
+    card.appendChild(title); card.appendChild(list); card.appendChild(close); panel.appendChild(card); document.body.appendChild(panel);
+    return panel;
+  }
   window.showV2Recovery = async function () {
     var trash = await window.loadRestorableV2Trash();
     if (!trash.length) { window.alert("Trash has no restorable records."); return; }
-    var lines = trash.map(function (entry, index) { return (index + 1) + ". " + entry.recordType + ": " + (entry.payload.title || entry.payload.name || entry.recordId); });
-    var choice = window.prompt("Trash (30-day recovery)\\n\\n" + lines.join("\\n") + "\\n\\nEnter a number to restore, or Cancel.");
-    var selected = trash[Number(choice) - 1];
-    if (selected) {
-      await window.restoreTrashRecord(selected.id, selected.revision);
-      window.alert("Restored. Reload to display the recovered record.");
-    }
+    var panel = recoveryPanel();
+    var list = document.getElementById("v2-recovery-list");
+    while (list.firstChild) list.removeChild(list.firstChild);
+    trash.forEach(function (entry) {
+      var row = document.createElement("div");
+      row.style.cssText = "display:flex;justify-content:space-between;gap:12px;align-items:center;border-top:1px solid #283140;padding:12px 0";
+      var label = document.createElement("span");
+      var entryTitle = entry.payload.title || entry.payload.name || entry.recordId;
+      label.textContent = entryTitle;
+      var restore = document.createElement("button");
+      restore.type = "button";
+      restore.textContent = "Restore " + entryTitle;
+      restore.addEventListener("click", async function () {
+        restore.disabled = true;
+        try {
+          await window.restoreTrashRecord(entry.id, entry.revision);
+          row.remove();
+          window.alert("Restored. Reloading the recovered goal.");
+          window.location.reload();
+        } catch (error) {
+          restore.disabled = false;
+          console.error("Goal restore failed", error && error.code, error && error.message);
+          window.alert("Restore error: " + (error && error.message ? error.message : error));
+        }
+      });
+      row.appendChild(label); row.appendChild(restore); list.appendChild(row);
+    });
+    panel.style.display = "block";
   };
   function addRecoveryButton() {
     if (document.getElementById("v2-recovery-button")) return;
@@ -161,6 +206,7 @@
     button.textContent = "Recovery";
     button.title = "Open cloud Trash and restore deleted records";
     button.style.cssText = "position:fixed;right:16px;bottom:16px;z-index:9999;padding:9px 12px;border:1px solid #777;border-radius:8px;background:#fff;color:#222";
+    recoveryPanel();
     button.addEventListener("click", function () {
       window.showV2Recovery().catch(function (error) {
         console.error("Goal Recovery failed", error && error.code, error && error.message);

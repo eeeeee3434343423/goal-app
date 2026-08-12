@@ -21,7 +21,12 @@ function runtime() {
     body: { appendChild() {} },
     getElementById() { return null; },
     createElement() {
-      return { style: {}, addEventListener(type, fn) { listeners[type] = fn; } };
+      return {
+        style: {},
+        setAttribute() {},
+        appendChild() {},
+        addEventListener(type, fn) { listeners[type] = fn; }
+      };
     },
     addEventListener() {}
   };

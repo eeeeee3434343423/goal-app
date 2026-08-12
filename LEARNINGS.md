@@ -70,3 +70,4 @@
 - Do not promise recoverable deletion while signed out. Block it until the authenticated v2 read completes, and lock each record while its Trash transaction is running so double-clicks cannot submit the same revision twice.
 - Expiring Trash is a recovery payload, not a permanent deletion marker. A durable legacy tombstone must be written in the same transaction as the live-to-Trash move so stale whole-array backups cannot resurrect the goal after Trash retention ends.
 - Recovery views should query only their owning record type. Goal recovery must not fail because an unrelated Hub-app collection cannot be listed.
+- Do not use JavaScript `prompt()` for a production Recovery selector; embedded and mobile browser surfaces may reject it. Render a real accessible dialog with ordinary buttons that can be tested and announced.

@@ -90,6 +90,9 @@ test("Recovery lists only Trash records that are not already live", () => {
   const recovery = api.slice(api.indexOf("window.loadRestorableV2Trash"), api.indexOf("window.getV2RecordRevision"));
   assert.doesNotMatch(recovery, /active\.port\.list\("hubApps"\)/);
   assert.match(recovery, /entry\.recordType === "goal"/);
+  assert.match(api, /id = "v2-recovery-panel"/);
+  assert.match(api, /restore\.textContent = "Restore " \+ entryTitle/);
+  assert.doesNotMatch(api, /window\.prompt\(/);
   assert.match(api, /Trash has no restorable records/);
 });
 
