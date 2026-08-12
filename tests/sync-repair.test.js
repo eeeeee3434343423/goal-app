@@ -42,5 +42,5 @@ test("live remote tombstones are retained for the next local save", () => {
 });
 
 test("import explicitly revives IDs that were deleted earlier", () => {
-  assert.match(html, /goals = normalizeGoals\(arr\);\s*reviveImportedGoalIds\(goals\);\s*save\(\)/);
+  assert.match(html, /goals = removeKnownGoalContamination\(normalizeGoals\(arr\)\);\s*reviveImportedGoalIds\(goals\);\s*save\(\)/);
 });

@@ -146,7 +146,7 @@ test("stale revisions propagate a controlled conflict", async () => {
 test("Goal runtime authenticates into modern v2 and does not invoke legacy startup", () => {
   const html = fs.readFileSync(path.join(__dirname, "..", "goal-app.html"), "utf8");
   assert.match(html, /createModernV2Port/);
-  assert.match(html, /await startGoalV2Sync\(\)/);
+  assert.match(html, /startGoalV2Sync\(\)\.catch\(handleInitialCloudSyncFailure\)/);
   assert.doesNotMatch(html, /await startGoalSync\(\)/);
   assert.match(html, /moveRecordToTrash\("goal"/);
 });
