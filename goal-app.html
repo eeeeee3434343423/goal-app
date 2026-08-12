@@ -718,7 +718,6 @@ async function startGoalV2Sync(){
     localStorage.setItem(KEY, JSON.stringify(storedGoals()));
     applyingCloud = false;
     render();
-    await syncV2Records("goals", syncableGoals(), "goal");
   }
   cloudSave.initialReadDone = true;
   var poll = setInterval(async function(){

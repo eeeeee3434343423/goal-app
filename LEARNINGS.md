@@ -61,3 +61,4 @@
 # 2026-08-11 - Requested records are user data
 
 - A record added for a user's explicit request is user data even if code originally created it. Never later classify it as a disposable seed. Exact incident contamination may be excluded by immutable record ID, but approved saved records must remain visible and must never be auto-Trashed during startup.
+- Authenticated startup must be read-only after resumable migration. Rewriting every normalized record on each open creates revision races when phone, desktop, or two tabs connect together; only explicit user edits should enter the ordinary record-update path.

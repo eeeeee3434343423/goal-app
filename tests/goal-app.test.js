@@ -80,7 +80,7 @@ test("quarantined cloud records remain in sync writes without rendering as goals
   const startup = html.slice(html.indexOf("async function startGoalV2Sync"), html.indexOf("async function startGoalSync"));
   assert.match(cloudSave, /syncV2Records\("goals", syncableGoals\(\), "goal"\)/);
   assert.match(startup, /rememberGoalCloudRecords\(await loadV2Records\("goals"\)\)/);
-  assert.match(startup, /syncV2Records\("goals", syncableGoals\(\), "goal"\)/);
+  assert.doesNotMatch(startup, /syncV2Records\("goals"/);
 });
 
 test("Recovery lists only Trash records that are not already live", () => {
