@@ -114,6 +114,14 @@
     return restored;
   };
   window.loadV2Trash = function () { return requireConfig().port.list("trash"); };
+  window.loadRestorableV2Trash = async function () {
+    var active = requireConfig();
+    var results = await Promise.all([active.port.list("trash"), active.port.list("goals"), active.port.list("hubApps")]);
+    var live = Object.create(null);
+    results[1].forEach(function (record) { live["goal/" + record.id] = true; });
+    results[2].forEach(function (record) { live["hubApp/" + record.id] = true; });
+    return results[0].filter(function (entry) { return !live[String(entry.recordType) + "/" + String(entry.recordId)]; });
+  };
   window.getV2RecordRevision = function (collectionName, id) {
     return cache[collectionName] && cache[collectionName][id] ? cache[collectionName][id].revision : 0;
   };
@@ -129,8 +137,8 @@
     return safety.exportRecoveryBundle({ records: results[0].concat(results[1]), trash: results[2], changeLog: results[3] });
   };
   window.showV2Recovery = async function () {
-    var trash = await window.loadV2Trash();
-    if (!trash.length) { window.alert("Trash is empty."); return; }
+    var trash = await window.loadRestorableV2Trash();
+    if (!trash.length) { window.alert("Trash has no restorable records."); return; }
     var lines = trash.map(function (entry, index) { return (index + 1) + ". " + entry.recordType + ": " + (entry.payload.title || entry.payload.name || entry.recordId); });
     var choice = window.prompt("Trash (30-day recovery)\\n\\n" + lines.join("\\n") + "\\n\\nEnter a number to restore, or Cancel.");
     var selected = trash[Number(choice) - 1];

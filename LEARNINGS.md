@@ -57,3 +57,7 @@
 # 2026-08-11 - Cloud startup must not impersonate parity
 
 - A device cache can be stale or empty even when the cloud record is intact. While the first authenticated cloud read is pending, hide cache-derived goal cards, make the loading state explicit, and surface a retryable failure rather than leaving a misleading `connecting` indicator.
+
+# 2026-08-11 - Requested records are user data
+
+- A record added for a user's explicit request is user data even if code originally created it. Never later classify it as a disposable seed. Exact incident contamination may be excluded by immutable record ID, but approved saved records must remain visible and must never be auto-Trashed during startup.

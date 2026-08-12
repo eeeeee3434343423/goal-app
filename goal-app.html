@@ -442,16 +442,20 @@ function normalizeGoals(items){
 function normalizedGoalTitle(value){
   return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
 }
-var RETIRED_SEED_GOAL_IDS = {
-  "requested-belgian-malinois": true,
-  "requested-get-contacts": true,
-  "requested-paint-room": true
+var KNOWN_GOAL_CONTAMINATION_IDS = {
+  "demo-active-launch": true,
+  "demo-small-script": true,
+  "demo-small-outreach": true,
+  "demo-future-course": true,
+  "demo-future-youtube": true,
+  "demo-win-first-student": true,
+  "g17834516448381281": true
 };
-function removeRetiredSeedGoals(items){
-  return (Array.isArray(items) ? items : []).filter(function(goal){ return !RETIRED_SEED_GOAL_IDS[String(goal && goal.id || "")]; });
+function removeKnownGoalContamination(items){
+  return (Array.isArray(items) ? items : []).filter(function(goal){ return !KNOWN_GOAL_CONTAMINATION_IDS[String(goal && goal.id || "")]; });
 }
-function retiredSeedGoalRecords(records){
-  return (Array.isArray(records) ? records : []).filter(function(record){ return RETIRED_SEED_GOAL_IDS[String(record && record.id || "")]; });
+function removeKnownGoalContaminationRecords(records){
+  return (Array.isArray(records) ? records : []).filter(function(record){ return !KNOWN_GOAL_CONTAMINATION_IDS[String(record && record.id || "")]; });
 }
 function load(){
   if (DEMO){
@@ -462,10 +466,10 @@ function load(){
     ];
     return;
   }
-  try { goals = removeRetiredSeedGoals(normalizeGoals(JSON.parse(localStorage.getItem(KEY)) || [])); }
+  try { goals = removeKnownGoalContamination(normalizeGoals(JSON.parse(localStorage.getItem(KEY)) || [])); }
   catch(e){ goals = []; }
 }
-function storedGoals(){ return removeRetiredSeedGoals(normalizeGoals(goals)); }
+function storedGoals(){ return removeKnownGoalContamination(normalizeGoals(goals)); }
 function goalPayloadEmpty(value){
   if (value === null || value === undefined || value === "") return true;
   try { var parsed = JSON.parse(value); return !Array.isArray(parsed) || parsed.length === 0; }
@@ -639,7 +643,7 @@ async function loadCloudGoals(){
   if (!snap.exists()) return null;
   var data = snap.data() || {};
   if (goalPayloadEmpty(data.value)) return null;
-  try { return normalizeGoals(JSON.parse(data.value)); } catch(e){ return null; }
+  try { return removeKnownGoalContamination(normalizeGoals(JSON.parse(data.value))); } catch(e){ return null; }
 }
 async function saveCloudGoals(){
   if (!cloudSave.ready || !cloudSave.user || !cloudSave.initialReadDone) return;
@@ -674,12 +678,7 @@ async function startGoalV2Sync(){
     deviceId: deviceId,
     port: createModernV2Port(cloudSave.db, cloudSave.fireMod, cloudSave.user.uid)
   });
-  var cloudRecords = await loadV2Records("goals");
-  var retiredRecords = retiredSeedGoalRecords(cloudRecords);
-  for (var retiredIndex = 0; retiredIndex < retiredRecords.length; retiredIndex += 1) {
-    await moveRecordToTrash("goal", retiredRecords[retiredIndex].id, retiredRecords[retiredIndex].revision);
-  }
-  if (retiredRecords.length) cloudRecords = await loadV2Records("goals");
+  var cloudRecords = removeKnownGoalContaminationRecords(await loadV2Records("goals"));
   var migrationGoals = storedGoals();
   var legacySnap = await cloudSave.getDoc(cloudSave.docRef);
   if (legacySnap.exists()) {
@@ -694,12 +693,12 @@ async function startGoalV2Sync(){
       ).items;
     }
   }
-  migrationGoals = removeRetiredSeedGoals(migrationGoals);
+  migrationGoals = removeKnownGoalContamination(migrationGoals);
   await migrateLegacyEnvelopeOnce(migrationGoals, "goal");
-  cloudRecords = await loadV2Records("goals");
+  cloudRecords = removeKnownGoalContaminationRecords(await loadV2Records("goals"));
   if (cloudRecords.length) {
     applyingCloud = true;
-    goals = removeRetiredSeedGoals(normalizeGoals(cloudRecords.map(function(record){ return record.payload; })));
+    goals = removeKnownGoalContamination(normalizeGoals(cloudRecords.map(function(record){ return record.payload; })));
     localStorage.setItem(KEY, JSON.stringify(storedGoals()));
     applyingCloud = false;
     render();
@@ -709,8 +708,8 @@ async function startGoalV2Sync(){
   var poll = setInterval(async function(){
     if (!cloudSave.user || applyingCloud) return;
     try {
-      var latest = await loadV2Records("goals");
-      var next = removeRetiredSeedGoals(normalizeGoals(latest.map(function(record){ return record.payload; })));
+      var latest = removeKnownGoalContaminationRecords(await loadV2Records("goals"));
+      var next = removeKnownGoalContamination(normalizeGoals(latest.map(function(record){ return record.payload; })));
       storedGoals().forEach(function(localGoal){
         var localId = v2RecordIdFor(localGoal, "goal");
         if (!isV2RecordPending("goals", localId)) return;
@@ -785,7 +784,7 @@ function applyCloudEnvelope(envelope){
     var parsed = JSON.parse(envelope.value);
     if (!Array.isArray(parsed)) return;
     applyingCloud = true;
-    goals = normalizeGoals(parsed);
+    goals = removeKnownGoalContamination(normalizeGoals(parsed));
     localStorage.setItem(KEY, JSON.stringify(storedGoals()));
     localStorage.setItem(SYNC_UPDATED_KEY, String(envelope.updatedAt || Date.now()));
     applyingCloud = false;
@@ -1613,7 +1612,7 @@ function importGoals(inp){
     try {
       var arr = JSON.parse(reader.result);
       if (!Array.isArray(arr)) throw new Error("bad format");
-      goals = normalizeGoals(arr);
+      goals = removeKnownGoalContamination(normalizeGoals(arr));
       reviveImportedGoalIds(goals);
       save();
       alert("Imported " + goals.length + " goals.");

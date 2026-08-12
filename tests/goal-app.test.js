@@ -34,32 +34,50 @@ test("dark theme gives controls explicit readable foregrounds", () => {
   assert.ok(contrast("#030712", "#4DA3FF") >= 4.5);
 });
 
-test("legacy injected goals are removed by reserved ID without deleting user goals with matching titles", () => {
+test("approved saved goals and Paint Room victory are never filtered or auto-trashed", () => {
   const html = fs.readFileSync(htmlPath, "utf8");
-  const start = html.indexOf("function normalizedGoalTitle");
+  const start = html.indexOf("var KNOWN_GOAL_CONTAMINATION_IDS");
   const end = html.indexOf("function goalPayloadEmpty", start);
   assert.ok(start >= 0 && end > start);
   const context = { Date };
   vm.createContext(context);
   vm.runInContext(html.slice(start, end), context);
   const current = [
-    { id: "mine", title: "Belgian Malinois", custom: 42 },
     { id: "requested-belgian-malinois", title: "Belgian Malinois", goalType: "future" },
     { id: "requested-get-contacts", title: "Get Contacts", goalType: "future" },
     { id: "requested-paint-room", title: "Paint Room", achievedAt: 1 },
+    { id: "demo-active-launch", title: "Marcus gets 3 paying tutoring students" },
+    { id: "g17834516448381281", title: "Algebra contamination" },
   ];
-  const cleaned = context.removeRetiredSeedGoals(current);
-  assert.deepEqual(JSON.parse(JSON.stringify(cleaned)), [{ id: "mine", title: "Belgian Malinois", custom: 42 }]);
-  assert.doesNotMatch(html, /function ensureRequestedGoals/);
+  const cleaned = context.removeKnownGoalContamination(current);
+  assert.deepEqual(JSON.parse(JSON.stringify(cleaned)), current.slice(0, 3));
+  assert.doesNotMatch(html, /RETIRED_SEED_GOAL_IDS/);
 });
 
-test("v2 startup moves only retired injected goal records to Trash before projecting goals", () => {
+test("every cloud and import ingestion path excludes only exact incident contamination", () => {
+  const html = fs.readFileSync(htmlPath, "utf8");
+  const cloudLoad = html.slice(html.indexOf("async function loadCloudGoals"), html.indexOf("async function saveCloudGoals"));
+  const legacyApply = html.slice(html.indexOf("function applyCloudEnvelope"), html.indexOf("function syncClick"));
+  const imported = html.slice(html.indexOf("function importGoals"), html.indexOf("function closeForm", html.indexOf("function importGoals")));
+  assert.match(cloudLoad, /removeKnownGoalContamination\(normalizeGoals/);
+  assert.match(legacyApply, /removeKnownGoalContamination\(normalizeGoals/);
+  assert.match(imported, /removeKnownGoalContamination\(normalizeGoals/);
+});
+
+test("v2 startup never auto-trashes approved saved goals", () => {
   const html = fs.readFileSync(htmlPath, "utf8");
   const startup = html.slice(html.indexOf("async function startGoalV2Sync"), html.indexOf("async function startGoalSync"));
-  assert.match(startup, /var retiredRecords = retiredSeedGoalRecords\(cloudRecords\)/);
-  assert.match(startup, /moveRecordToTrash\("goal", retiredRecords\[retiredIndex\]\.id, retiredRecords\[retiredIndex\]\.revision\)/);
-  assert.match(startup, /migrationGoals = removeRetiredSeedGoals\(migrationGoals\)/);
-  assert.doesNotMatch(startup, /ensureRequestedGoals/);
+  assert.doesNotMatch(startup, /moveRecordToTrash\(/);
+  assert.match(startup, /migrationGoals = removeKnownGoalContamination\(migrationGoals\)/);
+  assert.match(startup, /cloudRecords = removeKnownGoalContaminationRecords\(await loadV2Records\("goals"\)\)/);
+});
+
+test("Recovery lists only Trash records that are not already live", () => {
+  const api = fs.readFileSync(path.join(__dirname, "..", "sync-v2-api.js"), "utf8");
+  assert.match(api, /window\.loadRestorableV2Trash = async function/);
+  assert.match(api, /active\.port\.list\("goals"\)/);
+  assert.match(api, /active\.port\.list\("hubApps"\)/);
+  assert.match(api, /Trash has no restorable records/);
 });
 
 test("production demo loader is absent", () => {
@@ -110,6 +128,20 @@ test("mobile sign-in uses popup instead of cross-domain redirect", () => {
   assert.match(html, /signInWithPopup\(cloudSave\.auth, provider\)/);
   assert.doesNotMatch(html, /signInWithRedirect\(cloudSave\.auth, provider\)/);
   assert.match(html, /auth\/popup-blocked/);
+});
+
+test("every static Goal button handler resolves to implemented functions", () => {
+  const html = fs.readFileSync(htmlPath, "utf8");
+  const handlers = [...html.matchAll(/on(?:click|change)="([^"]+)"/g)].map((match) => match[1]);
+  const ignored = new Set(["if"]);
+  const called = new Set();
+  handlers.forEach((handler) => {
+    for (const match of handler.matchAll(/(?<![.\w$])([A-Za-z_$][\w$]*)\s*\(/g)) {
+      if (!ignored.has(match[1])) called.add(match[1]);
+    }
+  });
+  const missing = [...called].filter((name) => !new RegExp(`function\\s+${name}\\s*\\(`).test(html));
+  assert.deepEqual(missing, []);
 });
 
 function extractScript() {

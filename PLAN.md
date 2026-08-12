@@ -1029,6 +1029,36 @@ No implementation code for this addendum will be changed until this plan is appr
 
 # Goal App Cross-Device Sync - Staged Replacement
 
+## 2026-08-11 Full Integrity Repair - Approved by user
+
+### Verified causes
+1. Startup treats the saved `requested-belgian-malinois`, `requested-get-contacts`, and `requested-paint-room` records as unwanted seeds, attempts to Trash them again, receives `permission-denied` because matching Trash records already exist, and aborts the authenticated read.
+2. The same incorrect filter hides those three user-approved records, including the missing Paint Room victory.
+3. Known demo records and one exact incident-contaminated Algebra record remain in the cloud projection and appear as if they were current goals.
+4. Hub duplicate cleanup failure falls back to rendering raw duplicate app records.
+
+### Files and behavior
+1. `goal-app.html`
+   - Preserve and display the three `requested-*` saved records; never auto-Trash them.
+   - Exclude only exact proven contamination IDs from live projections and legacy migration inputs.
+   - Keep every other goal/victory, including Boundaries and Develop a proper notes format.
+   - Reach `Cloud: v2 ready` even when old Trash records exist.
+2. `tests/goal-app.test.js`
+   - Prove approved records survive load/projection.
+   - Prove only exact contaminated IDs are excluded.
+   - Prove startup does not auto-delete any approved record.
+3. Hub files listed in the Hub repository plan.
+4. `LEARNINGS.md`
+   - Record that requested user records cannot later be reclassified as disposable seeds.
+
+### Production verification
+1. Run every existing Goal and Hub test plus embedded-script syntax checks.
+2. Verify every inline button handler resolves to a function.
+3. Verify authenticated Goal reaches `Cloud: v2 ready` with no console errors.
+4. Verify Goal and Hub show the same goal IDs/categories after reload in two fresh clients.
+5. Verify add/edit/check/reorder/timer/victory/reopen/delete/restore/import/export and Hub navigation/timer/app/information controls using disposable test records, with cleanup through recoverable Trash.
+
+
 ## 2026-08-11 Incident Repair: Do Not Display Unsynced Goal State
 
 ### Refine
