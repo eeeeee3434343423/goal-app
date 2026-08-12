@@ -87,7 +87,9 @@ test("Recovery lists only Trash records that are not already live", () => {
   const api = fs.readFileSync(path.join(__dirname, "..", "sync-v2-api.js"), "utf8");
   assert.match(api, /window\.loadRestorableV2Trash = async function/);
   assert.match(api, /active\.port\.list\("goals"\)/);
-  assert.match(api, /active\.port\.list\("hubApps"\)/);
+  const recovery = api.slice(api.indexOf("window.loadRestorableV2Trash"), api.indexOf("window.getV2RecordRevision"));
+  assert.doesNotMatch(recovery, /active\.port\.list\("hubApps"\)/);
+  assert.match(recovery, /entry\.recordType === "goal"/);
   assert.match(api, /Trash has no restorable records/);
 });
 

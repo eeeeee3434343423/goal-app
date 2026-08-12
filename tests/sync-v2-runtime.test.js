@@ -155,6 +155,25 @@ test("Goal runtime authenticates into modern v2 and does not invoke legacy start
   assert.match(modernPort, /tx\.set\(legacyRef, \{ tombstones: durableTombstones, updatedAt: Date\.now\(\) \}, \{ merge: true \}\)/);
 });
 
+test("Goal Recovery lists deleted goals without depending on Hub app access", async () => {
+  const { context, records, port } = runtime();
+  records.trash.push(
+    { id: "goal__deleted", recordType: "goal", recordId: "deleted", payload: { id: "deleted", title: "Deleted goal" }, revision: 2 },
+    { id: "hubApp__app", recordType: "hubApp", recordId: "app", payload: { id: "app", name: "App" }, revision: 1 },
+    { id: "goal__live", recordType: "goal", recordId: "live", payload: { id: "live", title: "Old copy" }, revision: 1 }
+  );
+  records.goals.push({ id: "live", payload: { id: "live", title: "Live goal" }, schemaVersion: 2, revision: 2 });
+  port.list = async (name) => {
+    if (name === "hubApps") throw new Error("Goal Recovery must not query Hub apps");
+    return records[name].map((item) => structuredClone(item));
+  };
+  await context.configureV2Sync({ uid: "u1", deviceId: "d1", port });
+
+  const restorable = await context.loadRestorableV2Trash();
+
+  assert.deepEqual(restorable.map((entry) => entry.recordId), ["deleted"]);
+});
+
 test("a stale second device cannot remigrate a goal that already exists in cloud Trash", async () => {
   const { context, records, port } = runtime();
   await context.configureV2Sync({ uid: "u1", deviceId: "device-a", port });

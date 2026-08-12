@@ -121,11 +121,12 @@
   window.loadV2Trash = function () { return requireConfig().port.list("trash"); };
   window.loadRestorableV2Trash = async function () {
     var active = requireConfig();
-    var results = await Promise.all([active.port.list("trash"), active.port.list("goals"), active.port.list("hubApps")]);
+    var results = await Promise.all([active.port.list("trash"), active.port.list("goals")]);
     var live = Object.create(null);
     results[1].forEach(function (record) { live["goal/" + record.id] = true; });
-    results[2].forEach(function (record) { live["hubApp/" + record.id] = true; });
-    return results[0].filter(function (entry) { return !live[String(entry.recordType) + "/" + String(entry.recordId)]; });
+    return results[0].filter(function (entry) {
+      return entry && entry.recordType === "goal" && !live["goal/" + String(entry.recordId)];
+    });
   };
   window.getV2RecordRevision = function (collectionName, id) {
     return cache[collectionName] && cache[collectionName][id] ? cache[collectionName][id].revision : 0;

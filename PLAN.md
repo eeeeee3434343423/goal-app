@@ -1133,6 +1133,7 @@ Every active Major Goal card, including the Major Definite Purpose, has a visibl
    - Treat a matching cloud Trash record as a durable deletion marker during legacy migration so a stale second device cannot recreate the deleted Major Goal.
    - Prove migrate, delete, and fresh-device remigration leaves the goal deleted and recoverable.
    - Atomically preserve a durable tombstone in the legacy Goal envelope during the cloud Trash transaction so deletion remains permanent after the 30-day recoverable Trash payload expires.
+   - Keep Goal Recovery scoped to Goal Trash and live Goal records so restoring a goal never depends on unrelated Hub-app collection access.
 4. `LEARNINGS.md`
    - Record that destructive actions users need must be visible on the relevant card, while retaining confirmation and recoverability.
 
