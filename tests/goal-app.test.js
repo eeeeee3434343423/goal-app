@@ -107,8 +107,11 @@ test("new goal form removes Steps 9 through 15 and combines milestone planning",
   const html = fs.readFileSync(htmlPath, "utf8");
   const activeFields = html.slice(html.indexOf('<div id="activeFields">'), html.indexOf('<div class="modal-btns">'));
 
-  assert.match(activeFields, /Milestones and small goals/);
-  assert.match(activeFields, /id="fMilestones"/);
+  // Redesign (PLAN.md 3.1 / 3.2): #6 Knowledge and People and Milestones are
+  // removed from NEW goal creation. Small Goals are now the direct children.
+  assert.doesNotMatch(activeFields, /Milestones and small goals/);
+  assert.doesNotMatch(activeFields, /id="fMilestones"/);
+  assert.doesNotMatch(activeFields, /id="fSkills"/);
   assert.match(activeFields, /id="formSmallGoalsList"/);
   assert.match(activeFields, /addFormSmallGoal\(\)/);
   [
@@ -126,15 +129,22 @@ test("new goal form removes Steps 9 through 15 and combines milestone planning",
 test("planning textareas have explicit accessible labels", () => {
   const html = fs.readFileSync(htmlPath, "utf8");
   assert.match(html, /<label[^>]*for="fSmallMilestones"[^>]*>Steps for this small goal<\/label>/);
-  assert.match(html, /<label[^>]*for="fMilestones"[^>]*>Milestone goals<\/label>/);
-  assert.match(html, /Small goals to create/);
-  assert.match(html, /Steps for this child small goal/);
+  // Redesign: the milestone textarea is gone; the Small Goal WHAT/WHY/duration
+  // fields each carry their own explicit label instead.
+  assert.doesNotMatch(html, /for="fMilestones"/);
+  assert.match(html, /for="sgWhat-/);
+  assert.match(html, /for="sgWhy-/);
+  assert.match(html, /for="sgDur-/);
 });
 
 test("Active Goal cards show every child Small Goal with its own parent and step checkboxes", () => {
   const html = fs.readFileSync(htmlPath, "utf8");
   const card = html.slice(html.indexOf("function smallGoalsSummaryHtml"), html.indexOf("function victoryCardHtml"));
-  assert.match(card, /Small Goal #/);
+  // Revision: the card is the execution view - WHAT, WHY and the estimate are
+  // all rendered, because WHY exists to be read while doing the work.
+  assert.match(card, /exec-what/);
+  assert.match(card, /exec-why/);
+  assert.match(card, /formatEstimate\(item\.estimateMinutes\)/);
   assert.match(card, /toggleSmallGoal\(/);
   assert.match(card, /childSmallGoalStepsHtml\(g, item\)/);
 });
@@ -633,9 +643,18 @@ test("new small goal objects preserve ID and dates", () => {
     smallGoals: [{ id: "sg1", text: "Preserve me", done: true, createdAt: 111, completedAt: 222 }],
   });
 
+  // Redesign: the Small Goal model gained what / why / estimateMinutes.
+  // A legacy child keeps its text and inherits it as WHAT so nothing is dropped.
+  // Demo 3 added completedBy / reflectionStatus / reflection to the model.
   assert.deepEqual(JSON.parse(JSON.stringify(goal.smallGoals[0])), {
     id: "sg1",
     text: "Preserve me",
+    what: "Preserve me",
+    why: "",
+    estimateMinutes: null,
+    completedBy: "",
+    reflectionStatus: "",
+    reflection: { answers: { worked: "", slowed: "", learned: "", better: "" }, submittedAt: null, kind: "small" },
     done: true,
     createdAt: 111,
     completedAt: 222,
@@ -656,7 +675,8 @@ test("child small goal can be added with Khan Academy steps without changing act
   const { context, storage } = createHarness([{ id: "active", title: "Finish Algebra 2", milestones: [{ text: "Enroll", done: true }] }]);
   const steps = ["Finish Unit 4 & 5", "Finish Unit 6 & 7", "Review Both", "Finish Unit 8"];
 
-  context.addSmallGoal("active", "Finish Khan Academy Algebra 2", steps.join("\n"));
+  // Revision: one Small Goal contract - WHAT and WHY are both required here too.
+  context.addSmallGoal("active", "Finish Khan Academy Algebra 2", steps.join("\n"), "Algebra 2 is the prerequisite blocking precalculus", 120);
 
   let saved = JSON.parse(storage["achieve.goals.v1"])[0];
   assert.deepEqual(saved.smallGoals[0].steps.map((step) => step.text), steps);
@@ -691,12 +711,16 @@ test("standalone small-goal progress uses only its own milestone-backed steps", 
   assert.equal(context.progress(goal), 50);
 });
 
-test("small-goals manager exposes labeled title and nested-step editors", () => {
+// Revision: the manager no longer authors Small Goals. There is one authoring
+// path (the planning form) so there cannot be two competing data contracts.
+test("small-goals manager is recovery-only and routes authoring to the planner", () => {
   const html = fs.readFileSync(htmlPath, "utf8");
-  assert.match(html, /for="newSmallGoalSteps">Steps for this small goal<\/label>/);
-  assert.match(html, /for="childTitle-/);
-  assert.match(html, /for="childSteps-/);
-  assert.match(html, /saveChildSmallGoalFromManager/);
+  const overlay = html.slice(html.indexOf('<div class="overlay" id="smallGoalsOverlay">'), html.indexOf("<script>"));
+  assert.doesNotMatch(overlay, /id="newSmallGoalText"/, "no quick-add authoring input");
+  assert.doesNotMatch(overlay, /id="newSmallGoalSteps"/);
+  assert.doesNotMatch(overlay, /addSmallGoalFromInput\(\)/);
+  assert.match(overlay, /editSmallGoalsInPlanner\(\)/, "it points at the single authoring path");
+  assert.match(html, /restoreSmallGoal\(/, "delete and restore recovery is kept");
 });
 
 test("nested child steps render only under their own child goal", () => {
@@ -727,7 +751,8 @@ test("editing nested steps preserves duplicate IDs, independent states, and unkn
     }],
   }]);
 
-  context.saveChildSmallGoal("active", "child", "Practice updated", "Review\nReview\nNew step");
+  // Revision: WHY is part of the one Small Goal contract, so it is supplied here.
+  context.saveChildSmallGoal("active", "child", "Practice the trial call script twice", "Review\nReview\nNew step", "Repetition is what makes the technique stick", 30);
   let child = JSON.parse(storage["achieve.goals.v1"])[0].smallGoals[0];
   assert.equal(child.customChild.keep, true);
   assert.deepEqual(child.steps.map((step) => [step.id, step.done, step.source || null]), [
@@ -778,12 +803,22 @@ test("addSmallGoal appends one goal and preserves existing goals", () => {
     { id: "g1", title: "Goal", smallGoals: [{ id: "sg1", text: "Existing", done: false, createdAt: 100, completedAt: null }] },
   ]);
 
-  context.addSmallGoal("g1", "New action");
+  const added = context.addSmallGoal("g1", "New action", "", "It unblocks the next stage of the goal", 30);
+  assert.equal(added, true);
 
   const saved = JSON.parse(storage["achieve.goals.v1"]);
   assert.equal(saved[0].smallGoals.length, 2);
   assert.equal(saved[0].smallGoals[0].id, "sg1");
   assert.equal(saved[0].smallGoals[1].text, "New action");
+  assert.equal(saved[0].smallGoals[1].why, "It unblocks the next stage of the goal");
+});
+
+// Revision: there is no longer a path that accepts a bare title with no WHY.
+test("addSmallGoal refuses a WHY-less small goal, so both paths share one contract", () => {
+  const { context } = createHarness([{ id: "g1", title: "Goal", goalType: "active", smallGoals: [] }]);
+  assert.equal(context.addSmallGoal("g1", "Study"), false, "'Study' with no WHY is rejected");
+  assert.equal(context.addSmallGoal("g1", "Read the chapter", "", ""), false, "a missing WHY is rejected");
+  assert.equal(context.goals[0].smallGoals.length, 0);
 });
 
 test("deleteSmallGoal removes only the selected small goal", () => {
@@ -850,17 +885,48 @@ test("editing an existing future idea cannot switch modes and lose hidden fields
     { id: "f1", title: "Future", goalType: "future", futureMonth: "2027-01", description: "Useful later" },
   ]);
 
+  // Redesign: a legacy future record migrates to Needs Planning and therefore
+  // opens the full planning form on purpose. Its hidden future-only fields must
+  // still survive that edit untouched.
   context.openForm("f1");
-  context.setFormMode("active");
+  context.setFormMode("small");
+  assert.equal(context.formMode, "active", "the mode stays locked; it cannot be switched away");
   elements.fTitle.value = "Future updated";
-  elements.fDescription.value = "Still useful later";
   context.saveForm();
 
   const saved = JSON.parse(storage["achieve.goals.v1"]);
   assert.equal(saved[0].goalType, "future");
   assert.equal(saved[0].title, "Future updated");
-  assert.equal(saved[0].description, "Still useful later");
+  assert.equal(saved[0].description, "Useful later", "the original description is preserved, not blanked");
   assert.equal(saved[0].futureMonth, "2027-01");
+  assert.equal(saved[0].legacyClassification, "future");
+});
+
+// Revision: a fully planned Future goal must NOT be routed through the
+// lightweight idea form. It reopens in the full planner with everything
+// editable and Copy for AI Review available.
+test("a finalized Future goal reopens in the full planner, not the light idea form", () => {
+  const { context, elements, storage } = createHarness([
+    { id: "f2", title: "Planned future goal", goalType: "future", status: "future", deadline: "2027-01-01",
+      description: "Keep me", why: "It matters for next year", start: "Nothing built yet",
+      smallGoals: [{ id: "a", what: "Draft the outline", why: "It has to exist before anything else" }] },
+  ]);
+
+  context.openForm("f2");
+  assert.equal(context.formMode, "active", "the full planning experience is used");
+  assert.equal(elements.fWhy.value, "It matters for next year", "planning data is visible and editable");
+  assert.equal(elements.fDeadline.value, "2027-01-01");
+  assert.equal(context.formChildSmallGoals.length, 1, "its Small Goals are loaded for editing");
+  assert.equal(elements.planActions.style.display, "", "Copy for AI review stays available");
+
+  elements.fTitle.value = "Renamed";
+  context.saveForm();
+
+  const saved = JSON.parse(storage["achieve.goals.v1"]);
+  assert.equal(saved[0].goalType, "future", "it is still a Future goal");
+  assert.equal(saved[0].status, "future");
+  assert.equal(saved[0].title, "Renamed");
+  assert.equal(saved[0].description, "Keep me", "light-form-only fields are preserved");
 });
 
 test("reopening an accidentally achieved active goal restores child checklist state", () => {
@@ -914,7 +980,10 @@ test("victory rendering includes achieved goals and excludes active and future g
     { id: "win", title: "Won goal", achievedAt: 1780000000000, milestones: [{ text: "M", done: true }], smallGoals: [{ id: "sg1", text: "S", done: true, createdAt: 1, completedAt: 2 }] },
   ]);
 
-  assert.match(elements.doneWrap.innerHTML, /Victories \/ wins - 1/);
+  // Phase 0B ruling Q-2: a genuine historical completion is GRANDFATHERED into
+  // Victory and its counter, labelled honestly, with no fabricated reflection.
+  assert.match(elements.doneWrap.innerHTML, /Victory - 1/);
+  assert.match(elements.doneWrap.innerHTML, /Completed before reflections existed/);
   assert.match(elements.doneWrap.innerHTML, /Won goal/);
   assert.doesNotMatch(elements.doneWrap.innerHTML, /Active/);
   assert.doesNotMatch(elements.doneWrap.innerHTML, /Future/);
@@ -1094,7 +1163,14 @@ test("winGoal moves a standalone small goal into victories", () => {
   assert.equal(saved[0].goalType, "small");
   assert.equal(typeof saved[0].achievedAt, "number");
   assert.doesNotMatch(elements.smallList.innerHTML, /One day task/);
-  assert.match(elements.doneWrap.innerHTML, /Victories \/ wins - 1/);
+  // Phase 0B H-2: a standalone one-day win is a SMALL victory. It must not be
+  // pushed through the main-goal reflection, and the list must agree with the
+  // counter rather than showing 1 while the section says 0.
+  assert.equal(saved[0].reflectionStatus, "", "no main-goal reflection debt");
+  assert.equal(context.victoryStats().smallVictories, 1);
+  assert.equal(context.victoryStats().mainVictories, 0, "not a main victory");
+  assert.equal(context.victoryStats().totalVictories, 1);
+  assert.match(elements.doneWrap.innerHTML, /Victory - 1/);
   assert.match(elements.doneWrap.innerHTML, /One day task/);
 });
 
@@ -1594,7 +1670,9 @@ test("Khan Academy Algebra 2 small-goal steps stay specific and preserve complet
   assert.deepEqual(other.milestones, [{ text: "Put clothes away", done: false }]);
 });
 
-test("editing active planning preserves child small goals while saving milestones", () => {
+// Redesign: milestones are no longer editable in the goal form. Editing a
+// legacy goal must leave them EXACTLY as they were - not extended, not erased.
+test("editing active planning leaves legacy milestones untouched and preserves child small goals", () => {
   const { context, elements, storage } = createHarness([{
     id: "active-plan",
     title: "Complete a course",
@@ -1604,12 +1682,13 @@ test("editing active planning preserves child small goals while saving milestone
   }]);
 
   context.openForm("active-plan");
-  elements.fMilestones.value = "Finish first half\nFinish second half\nTake final";
+  elements.fTitle.value = "Complete a course, edited";
   context.saveForm();
 
   const saved = JSON.parse(storage["achieve.goals.v1"])[0];
+  assert.equal(saved.title, "Complete a course, edited");
   assert.deepEqual(saved.milestones.map((item) => [item.text, item.done]), [
-    ["Finish first half", true], ["Finish second half", false], ["Take final", false],
+    ["Finish first half", true], ["Finish second half", false],
   ]);
   assert.deepEqual(saved.smallGoals.map((item) => [item.id, item.text, item.done]), [["sg-review", "Review today", true]]);
 });
@@ -1637,8 +1716,11 @@ test("new active goal creates child small goals and their independent steps from
   context.openForm(null, "active");
   context.addFormSmallGoal();
   context.addFormSmallGoal();
-  assert.match(elements.formSmallGoalsList.innerHTML, /Small Goal #1/);
-  assert.match(elements.formSmallGoalsList.innerHTML, /Steps for this child small goal/);
+  // Redesign: each Small Goal is now a card with its own WHAT, WHY, and duration.
+  assert.match(elements.formSmallGoalsList.innerHTML, /Small goal 1/);
+  assert.match(elements.formSmallGoalsList.innerHTML, /What exactly do I need to do\?/);
+  assert.match(elements.formSmallGoalsList.innerHTML, /Why am I doing this\?/);
+  assert.match(elements.formSmallGoalsList.innerHTML, /Optional steps/);
   context.updateFormSmallGoal(context.formChildSmallGoals[0].id, "text", "First child");
   context.updateFormSmallGoal(context.formChildSmallGoals[0].id, "stepsText", "First step\nSecond step");
   context.updateFormSmallGoal(context.formChildSmallGoals[1].id, "text", "Second child");
@@ -1673,12 +1755,12 @@ test("child manager controls have child-specific accessible names", () => {
   context.openSmallGoals("active");
   const html = elements.smallGoalsList.innerHTML;
   assert.match(html, /aria-label="Complete Read chapter"/);
-  assert.match(html, /aria-label="Edit Read chapter"/);
+  // Revision: the manager shows details and recovers; it no longer authors.
+  assert.match(html, /aria-label="Show Read chapter"/);
   assert.match(html, /aria-label="Delete Read chapter"/);
   assert.match(html, /aria-label="Restore Old child"/);
-  assert.match(fs.readFileSync(htmlPath, "utf8"), /<label[^>]*for="newSmallGoalText"/);
   context.selectChildSmallGoal("active", "child");
-  assert.match(elements.smallGoalsList.innerHTML, /aria-label="Save Read chapter"/);
+  assert.match(elements.smallGoalsList.innerHTML, /Edit in the planner/);
 });
 
 test("malformed child Trash entries fail closed while valid nested data survives normalization", () => {
