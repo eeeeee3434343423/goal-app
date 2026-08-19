@@ -856,3 +856,82 @@ test("MEDIUM-1: undefined checks walk the LIVE objects, not a JSON round trip", 
   assert.deepEqual(bad, [], "no undefined or function values reach the sync payload");
   assert.ok(live.length >= 2, "and the check actually inspected records");
 });
+
+/* ================================================================== */
+/* HIGH-A — "Keep as active" must survive the NEXT boot                 */
+/* ================================================================== */
+
+test("HIGH-A: Keep as active genuinely keeps it active across a reboot", () => {
+  // The previous coverage stopped at "the review list is empty" and never
+  // rebooted, which is exactly how this defect survived two review rounds.
+  const overdue = goal({ id: "old", deadline: dateOffset(-9) });
+  const h = createProdHarness({ cloud: [overdue] });
+  h.installAuthoritative();
+  assert.equal(h.context.goals[0].migrationOverdue, true, "flagged for review first");
+
+  assert.equal(h.context.clearMigrationOverdue("old"), true);
+  assert.equal(h.context.migrationOverdueGoals().length, 0);
+  assert.equal(h.context.goals[0].overdueAcknowledgedDeadline, overdue.deadline,
+    "the accepted deadline is recorded");
+
+  // SECOND BOOT from what was actually persisted.
+  const persisted = JSON.parse(h.storage["achieve.goals.v1"]);
+  const reboot = createProdHarness({ cloud: persisted });
+  reboot.installAuthoritative();
+
+  const g = reboot.context.goals[0];
+  assert.equal(g.outcome, "", "it is NOT silently missed on the next boot");
+  assert.equal(g.missedAt, null, "no miss timestamp");
+  assert.equal(g.reflectionStatus, "", "and no reflection debt");
+  assert.equal(reboot.context.needsReflectionGoals().length, 0);
+  assert.equal(reboot.context.migrationOverdueGoals().length, 0, "nor back in the review list");
+});
+
+test("HIGH-A: the exemption ends as soon as the deadline changes", () => {
+  const h = createProdHarness({ cloud: [goal({ id: "old", deadline: dateOffset(-9) })] });
+  h.installAuthoritative();
+  h.context.clearMigrationOverdue("old");
+
+  // Give it a new deadline that is ALSO in the past: the acknowledgement no
+  // longer matches, so the ordinary Missed workflow must apply again.
+  const newDeadline = dateOffset(-3);
+  h.context.goals[0].deadline = newDeadline;
+  h.context.save();
+
+  const persisted = JSON.parse(h.storage["achieve.goals.v1"]);
+  const reboot = createProdHarness({ cloud: persisted });
+  reboot.installAuthoritative();
+  const g = reboot.context.goals[0];
+  assert.equal(g.outcome, "missed", "a different deadline is not covered by the old acknowledgement");
+  assert.equal(g.reflectionStatus, "pending");
+});
+
+test("HIGH-A: a future deadline set through the planner clears the review cleanly", () => {
+  const h = createProdHarness({ cloud: [goal({ id: "old", deadline: dateOffset(-9) })] });
+  h.installAuthoritative();
+  h.context.openForm("old");
+  h.elements.fTitle.value = "An active goal";
+  h.elements.fDeadline.value = dateOffset(60);
+  h.context.saveForm();
+
+  const persisted = JSON.parse(h.storage["achieve.goals.v1"]);
+  const reboot = createProdHarness({ cloud: persisted });
+  reboot.installAuthoritative();
+  const g = reboot.context.goals[0];
+  assert.equal(g.migrationOverdue, undefined || !g.migrationOverdue ? g.migrationOverdue : true, "not in review");
+  assert.ok(!g.migrationOverdue);
+  assert.equal(g.outcome, "", "and not missed - the deadline is in the future");
+});
+
+test("HIGH-A: the acknowledgement is deterministic and prunes when unused", () => {
+  const h = createProdHarness({});
+  const plain = h.context.normalizeGoals([{ id: "g1750000000000a", title: "x", goalType: "active" }])[0];
+  assert.equal(plain.overdueAcknowledgedDeadline, undefined, "absent on records that never used it");
+
+  // It stores the deadline string itself, never a clock reading.
+  const acked = h.context.normalize({ id: "g2", title: "x", goalType: "active",
+    deadline: "2026-08-16", overdueAcknowledgedDeadline: "2026-08-16" });
+  assert.equal(acked.overdueAcknowledgedDeadline, "2026-08-16");
+  const again = h.context.normalize(acked);
+  assert.equal(again.overdueAcknowledgedDeadline, "2026-08-16", "stable across reads");
+});

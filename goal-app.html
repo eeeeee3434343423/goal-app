@@ -1688,6 +1688,7 @@ function normalize(g, idState){
   return Object.assign({}, g, {
     outcome: outcome,
     migrationOverdue: !isIdea && !!g.migrationOverdue,
+    overdueAcknowledgedDeadline: textField(g.overdueAcknowledgedDeadline),
     lifecycleMigratedVersion: Number(g.lifecycleMigratedVersion) > 0 ? Number(g.lifecycleMigratedVersion) : null,
     reflectionStatus: reflectionStatus,
     reflection: isIdea ? null : normalizeReflection(g.reflection, reflectionKind),
@@ -1773,7 +1774,7 @@ function normalize(g, idState){
    the first save after rollout rewrites the whole collection. Keys that are
    still at their default are removed, so an untouched legacy record
    serializes exactly as it did before and sync sees no change. */
-var PRUNE_WHEN_DEFAULT = { migrationOverdue: false, lifecycleMigratedVersion: null };
+var PRUNE_WHEN_DEFAULT = { migrationOverdue: false, lifecycleMigratedVersion: null, overdueAcknowledgedDeadline: "" };
 function pruneDefaults(record){
   Object.keys(PRUNE_WHEN_DEFAULT).forEach(function(key){
     if (record[key] === PRUNE_WHEN_DEFAULT[key]) delete record[key];
@@ -3679,6 +3680,8 @@ function goalDeadlinePassed(g, now){
 function canBeMissed(g){
   if (!g || isIdeaRecord(g)) return false;
   if (g.migrationOverdue) return false;   /* Q-1: review, not missed */
+  /* HIGH-A: an explicitly accepted overdue deadline is not a miss. */
+  if (g.overdueAcknowledgedDeadline && g.overdueAcknowledgedDeadline === g.deadline) return false;
   if (g.achievedAt || g.outcome === "completed") return false;
   if (g.outcome === "missed") return false;
   if (g.status !== "active" && g.status !== "future") return false;
@@ -3730,6 +3733,12 @@ function clearMigrationOverdue(id){
   var g = goals.find(function(x){ return x.id === id; });
   if (!g || !g.migrationOverdue) return false;
   g.migrationOverdue = false;
+  /* HIGH-A: the card promises "keep it as it is". Without recording that the
+     operator accepted THIS deadline, the very next boot would mark the goal
+     missed and hand it a reflection debt - breaking both the promise and
+     ruling Q-1. The acknowledgement stores the deadline itself (deterministic,
+     no clock), so giving the goal a new deadline ends the exemption. */
+  g.overdueAcknowledgedDeadline = String(g.deadline || "");
   save();
   render();
   return true;
