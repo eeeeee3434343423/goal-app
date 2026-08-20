@@ -129,6 +129,8 @@
   .status-chip.draft{background:var(--blueBg);color:var(--blue)}
   .status-chip.needsPlanning{background:var(--goldBg);color:var(--gold)}
   .status-chip.planned{background:var(--greenBg);color:var(--green)}
+  .status-chip.archived{background:var(--soft2);color:var(--text2)}
+  .archived-card{opacity:.94}
   .needs-planning-card{border-left:3px dashed var(--gold);opacity:.92}
   .future-card{border-left:3px solid var(--green)}
   .goal-color-strip{position:absolute;left:0;top:0;bottom:0;width:4px;border-radius:12px 0 0 12px}
@@ -270,7 +272,11 @@
   <div class="banner" id="banner" style="display:none"></div>
   <div class="view-tabs">
     <button id="viewToday" class="active" onclick="setView('today')" type="button">Today</button>
+    <button id="viewActive" onclick="setView('active')" type="button">Active goals</button>
+    <button id="viewSmall" onclick="setView('small')" type="button">Small goals</button>
+    <button id="viewFuture" onclick="setView('future')" type="button">Future goals</button>
     <button id="viewIdeas" onclick="setView('ideas')" type="button">Ideas</button>
+    <button id="viewArchive" onclick="setView('archive')" type="button">Archive</button>
     <button id="viewNotify" onclick="setView('notifications')" type="button">Alerts <span id="notifyBadge" class="notify-badge"></span></button>
     <button id="viewDaily" onclick="setView('daily')" type="button">Daily</button>
     <button id="viewVictories" onclick="setView('victories')" type="button">Victories</button>
@@ -283,6 +289,7 @@
   <div id="dailyList"></div>
   <div id="smallList"></div>
   <div id="futureList"></div>
+  <div id="archiveList"></div>
   <div id="doneWrap"></div>
 </div>
 
@@ -1045,6 +1052,8 @@ function evaluateNotifications(now){
   var emitted = 0;
   goals.forEach(function(g){
     if (isIdeaRecord(g)) return;
+    /* An archived goal is parked on purpose - it must not send reminders. */
+    if (isArchivedGoal(g)) return;
     if (isValidFutureGoal(g)){
       var days = daysUntilDeadline(g, at);
       if (days !== null && days <= FUTURE_REMINDER_DAYS && days >= 0){
@@ -1694,6 +1703,12 @@ function normalize(g, idState){
     reflection: isIdea ? null : normalizeReflection(g.reflection, reflectionKind),
     missedAt: Number(g.missedAt) > 0 ? Number(g.missedAt) : null,
     victoryArchivedAt: Number(g.victoryArchivedAt) > 0 ? Number(g.victoryArchivedAt) : null,
+    /* Archive = deliberately saved for later. Only an incomplete Active,
+       Small or Future goal can carry it; null means the goal is live. It is
+       always serialized, never pruned: the cross-device merge is per FIELD,
+       so an absent key would let an older archived copy re-archive a goal the
+       user has just restored. */
+    archivedAt: !isIdea && Number(g.archivedAt) > 0 ? Number(g.archivedAt) : null,
     initialPlanSnapshot: normalizeSnapshot(g.initialPlanSnapshot),
     victorySnapshot: normalizeSnapshot(g.victorySnapshot),
     recordKind: isIdea ? "idea" : (typeof g.recordKind === "string" && g.recordKind ? g.recordKind : "goal"),
@@ -1788,6 +1803,45 @@ function normalizeGoals(items){
 /* ---- Idea selectors. Formal Goal views must never see Idea records. ---- */
 function allIdeaRecords(){ return goals.filter(isIdeaRecord); }
 function formalGoals(){ return goals.filter(function(g){ return !isIdeaRecord(g); }); }
+/* ---- Archive: saved for later. NOT finished, NOT deleted, NOT a Victory.
+   Only an incomplete Active, Small or Future goal qualifies; Ideas, Daily
+   goals, completed goals and missed records are deliberately excluded. ---- */
+function isArchivedGoal(g){ return !!(g && !isIdeaRecord(g) && Number(g.archivedAt) > 0); }
+function canArchiveGoal(g){
+  if (!g || isIdeaRecord(g)) return false;
+  if (g.achievedAt || g.outcome === "completed" || g.outcome === "missed") return false;
+  return g.goalType === "active" || g.goalType === "small" || g.goalType === "future";
+}
+/* Every live goal view reads through this, so an archived goal disappears
+   from Today, Active, Small and Future until it is restored. */
+function liveGoals(){ return formalGoals().filter(function(g){ return !isArchivedGoal(g); }); }
+function archivedGoals(){
+  return formalGoals().filter(isArchivedGoal).sort(function(a, b){ return (b.archivedAt || 0) - (a.archivedAt || 0); });
+}
+function archiveGoal(id){
+  if (!canEditOrExportGoals()) return false;   /* BL-3 */
+  var g = goals.find(function(x){ return x.id === id; });
+  if (!canArchiveGoal(g) || isArchivedGoal(g)) return false;
+  g.archivedAt = Date.now();
+  save();
+  return true;
+}
+function unarchiveGoal(id, now){
+  if (!canEditOrExportGoals()) return false;   /* BL-3 */
+  var g = goals.find(function(x){ return x.id === id; });
+  if (!isArchivedGoal(g)) return false;
+  var at = Number.isFinite(Number(now)) ? Number(now) : Date.now();
+  g.archivedAt = null;
+  /* A goal parked while its deadline passed was OUT of execution, so it has
+     not been missed. It comes back for manual review (the Q-1 rule) instead
+     of being handed a miss and a reflection debt by the next sweep. */
+  if (g.deadline && !g.achievedAt && g.outcome !== "missed" && goalDeadlinePassed(g, at) &&
+      !(g.overdueAcknowledgedDeadline && g.overdueAcknowledgedDeadline === g.deadline)){
+    g.migrationOverdue = true;
+  }
+  save();
+  return true;
+}
 /* Open = still undecided or being researched. Converted and deleted are out. */
 function ideaRecords(){
   return allIdeaRecords().filter(function(g){ return !g.ideaDeletedAt && g.ideaStatus !== "converted"; });
@@ -2481,8 +2535,9 @@ function formatDate(value){
   if (isNaN(date.getTime())) return "";
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
+var VIEWS = { today: 1, active: 1, small: 1, future: 1, ideas: 1, archive: 1, notifications: 1, daily: 1, victories: 1 };
 function setView(view){
-  currentView = view === "daily" || view === "victories" || view === "ideas" || view === "notifications" ? view : "today";
+  currentView = VIEWS[view] === 1 ? view : "today";
   render();
 }
 function setDisplay(id, show){
@@ -2498,17 +2553,28 @@ function applyViewVisibility(){
   var isVictories = currentView === "victories";
   var isIdeas = currentView === "ideas";
   var isNotify = currentView === "notifications";
-  var isToday = !isDaily && !isVictories && !isIdeas && !isNotify;
+  var isArchive = currentView === "archive";
+  var isActiveTab = currentView === "active";
+  var isSmallTab = currentView === "small";
+  var isFutureTab = currentView === "future";
+  var isToday = !isDaily && !isVictories && !isIdeas && !isNotify && !isArchive && !isActiveTab && !isSmallTab && !isFutureTab;
   setDisplay("banner", isToday);
-  setDisplay("activeList", isToday);
-  setDisplay("smallList", isToday);
-  setDisplay("futureList", isToday);
+  /* One rendered list per goal kind, shown by Today and by its own tab. */
+  setDisplay("activeList", isToday || isActiveTab);
+  setDisplay("smallList", isToday || isSmallTab);
+  /* Future goals now live in their own tab and no longer sit inside Today. */
+  setDisplay("futureList", isFutureTab);
   setDisplay("dailyList", isDaily);
   setDisplay("doneWrap", isVictories);
   setDisplay("ideasList", isIdeas);
+  setDisplay("archiveList", isArchive);
   setDisplay("notifyList", isNotify);
   setViewTab("viewToday", isToday);
+  setViewTab("viewActive", isActiveTab);
+  setViewTab("viewSmall", isSmallTab);
+  setViewTab("viewFuture", isFutureTab);
   setViewTab("viewIdeas", isIdeas);
+  setViewTab("viewArchive", isArchive);
   setViewTab("viewNotify", isNotify);
   setViewTab("viewDaily", isDaily);
   setViewTab("viewVictories", isVictories);
@@ -2525,6 +2591,7 @@ function render(){
     /* BL-3: the Demo 2-4 surfaces must be blanked too, or stale cache data
        stays actionable while the authoritative read is pending. */
     document.getElementById("ideasList").innerHTML = "";
+    document.getElementById("archiveList").innerHTML = "";
     document.getElementById("needsReflectionList").innerHTML = "";
     document.getElementById("overdueReviewList").innerHTML = "";
     document.getElementById("notifyList").innerHTML = '<div class="empty"><b>Loading your saved cloud goals.</b><br>Alerts and backup controls are locked until the account data is confirmed.</div>';
@@ -2533,7 +2600,7 @@ function render(){
   }
   /* Idea records live in the same array but are NOT goals. Every formal goal
      view filters them out explicitly (Demo 2). */
-  var formal = formalGoals();
+  var formal = liveGoals();
   /* A draft is not a live goal. It must not sit in Today's active focus
      pretending to be one until it has been finalized (PLAN.md 16). */
   var drafts = formal.filter(function(g){ return g.status === "draft" && !g.achievedAt; }).sort(activeSort);
@@ -2547,6 +2614,7 @@ function render(){
   var future = formal.filter(function(g){ return g.goalType === "future" && !g.achievedAt && g.outcome !== "missed"; });
   var done = formal.filter(function(g){ return g.achievedAt; });
   renderIdeasView();
+  renderArchiveView();
   renderNotifications();
   renderOverdueReview();
   renderNeedsReflection();
@@ -2595,10 +2663,56 @@ function render(){
   renderVictoryView(done);
   applyViewVisibility();
 }
+/* The little Archive button that sits next to Win / Complete. */
+function archiveButtonHtml(g){
+  if (!canArchiveGoal(g) || isArchivedGoal(g)) return "";
+  return '<button class="archive-btn" title="Save this goal for later" onclick="archiveGoal(\'' + g.id + '\')">Archive</button>';
+}
+var ARCHIVE_TYPE_LABELS = { active: "Active goal", small: "Small goal", future: "Future goal" };
+function archiveCardHtml(g){
+  var type = ARCHIVE_TYPE_LABELS[g.goalType] || "Goal";
+  var when = g.deadline
+    ? 'Deadline: <b>' + esc(g.deadline) + '</b>'
+    : (g.goalType === "future" && g.futureMonth ? 'Estimate: <b>' + esc(formatMonth(g.futureMonth)) + '</b>'
+      : (g.targetDate ? 'Target: <b>' + esc(g.targetDate) + '</b>' : 'No deadline set'));
+  var note = g.why || g.description || "";
+  return '<div class="card archived-card">' +
+    '<div class="goal-color-strip" style="background:' + goalColorHex(g.color) + '"></div>' +
+    '<div class="card-btns"><button class="achieve-btn" onclick="unarchiveGoal(\'' + g.id + '\')">Restore</button><button onclick="openForm(\'' + g.id + '\')">Edit</button></div>' +
+    '<span class="status-chip archived">Archived - ' + esc(type) + '</span>' +
+    '<div class="goal-title">' + esc(g.title) + '</div>' +
+    (note ? '<p class="why">' + esc(note) + '</p>' : '') +
+    '<div class="meta"><span>' + when + '</span><span>Archived ' + esc(formatDate(g.archivedAt)) + '</span></div>' +
+  '</div>';
+}
+function renderArchiveView(){
+  var el = document.getElementById("archiveList");
+  if (!el) return;
+  var items = archivedGoals();
+  if (!items.length){
+    el.innerHTML = '<div class="sec-label">Archive - saved for later</div><div class="empty"><b>Nothing archived.</b><br>Use <b>Archive</b> on an incomplete active, small or future goal to park it here. Nothing is deleted, and <b>Restore</b> puts it straight back.</div>';
+    return;
+  }
+  var html = '<div class="sec-label">Archive - saved for later - ' + items.length + '</div>';
+  var groups = [
+    { type: "active", label: "Archived active goals" },
+    { type: "small", label: "Archived small goals" },
+    { type: "future", label: "Archived future goals" }
+  ];
+  groups.forEach(function(group){
+    var list = items.filter(function(g){ return g.goalType === group.type; });
+    if (!list.length) return;
+    html += '<div class="sec-label sub-sec">' + group.label + ' - ' + list.length + '</div>' + list.map(archiveCardHtml).join("");
+  });
+  /* Nothing is ever hidden: a record of some other kind still gets a card. */
+  var other = items.filter(function(g){ return !ARCHIVE_TYPE_LABELS[g.goalType]; });
+  if (other.length) html += '<div class="sec-label sub-sec">Archived - other - ' + other.length + '</div>' + other.map(archiveCardHtml).join("");
+  el.innerHTML = html;
+}
 function smallCardHtml(g){
   var p = progress(g);
   return '<div class="card small-card">' +
-    '<div class="card-btns"><button class="achieve-btn" onclick="achieveGoal(\'' + g.id + '\')">Win</button><button onclick="openForm(\'' + g.id + '\')">Edit</button></div>' +
+    '<div class="card-btns"><button class="achieve-btn" onclick="achieveGoal(\'' + g.id + '\')">Win</button><button onclick="openForm(\'' + g.id + '\')">Edit</button>' + archiveButtonHtml(g) + '</div>' +
     '<span class="future-chip">1 day or less</span>' +
     '<div class="goal-title">' + esc(g.title) + '</div>' +
     (g.description ? '<p class="why">' + esc(g.description) + '</p>' : '') +
@@ -2657,7 +2771,7 @@ function cardHtml(g){
     '<div class="goal-color-strip" style="background:' + goalColorHex(g.color) + '"></div>' +
     '<div class="card-btns">' +
       (achieved ? '<button onclick="reopenGoal(\'' + g.id + '\')">Reopen</button>'
-        : '<button class="achieve-btn" onclick="completeGoal(\'' + g.id + '\')">Complete</button><button onclick="openForm(\'' + g.id + '\')">Edit</button>' +
+        : '<button class="achieve-btn" onclick="completeGoal(\'' + g.id + '\')">Complete</button><button onclick="openForm(\'' + g.id + '\')">Edit</button>' + archiveButtonHtml(g) +
           (g.goalType === "active" ? '<button class="delete-card-btn" aria-label="Delete ' + esc(g.title) + '" onclick="deleteGoalById(\'' + g.id + '\')" ' + (deletingGoalIds[g.id] ? 'disabled' : '') + '>Delete</button>' : '')) +
     '</div>' +
     (g.mdp ? '<span class="mdp-chip">Major Definite Purpose</span>' : '') +
@@ -3166,7 +3280,7 @@ function draftCardHtml(g){
   var count = (g.smallGoals || []).length;
   return '<div class="card">' +
     '<div class="goal-color-strip" style="background:' + goalColorHex(g.color) + '"></div>' +
-    '<div class="card-btns"><button class="achieve-btn" onclick="openForm(\'' + g.id + '\')">Continue planning</button></div>' +
+    '<div class="card-btns"><button class="achieve-btn" onclick="openForm(\'' + g.id + '\')">Continue planning</button>' + archiveButtonHtml(g) + '</div>' +
     '<span class="status-chip draft">Draft</span>' +
     '<div class="goal-title">' + esc(g.title) + '</div>' +
     '<div class="meta"><span>Small goals: <b>' + count + '</b></span>' +
@@ -3193,6 +3307,7 @@ function futureCardHtml(g){
         ? '<button class="achieve-btn" onclick="openForm(\'' + g.id + '\')">Finish planning</button>'
         : '<button class="achieve-btn" onclick="activateFutureGoal(\'' + g.id + '\')">Activate</button><button onclick="openForm(\'' + g.id + '\')">Edit</button>') +
       (needsPlanning ? '<button onclick="openForm(\'' + g.id + '\')">Edit</button>' : '') +
+      archiveButtonHtml(g) +
     '</div>' +
     '<span class="status-chip ' + (needsPlanning ? "needsPlanning" : "planned") + '">' + (needsPlanning ? "Needs planning" : "Future goal") + '</span>' +
     '<div class="goal-title">' + esc(g.title) + '</div>' +
@@ -3600,6 +3715,8 @@ function achieveGoal(id){
   var g = goals.find(function(x){ return x.id === id; });
   if (!g || isIdeaRecord(g)) return false;
   if (g.achievedAt) return false;                 /* already completed */
+  /* An archived goal is not on the board; winning it would be a ghost click. */
+  if (isArchivedGoal(g)) return false;
   /* A missed record is history. Completing it here would erase the miss and
      smuggle it into Victory, which the missed-goal rules forbid. No UI offers
      this; the guard exists so no code path can do it by accident. */
@@ -3679,6 +3796,8 @@ function goalDeadlinePassed(g, now){
    victories are all excluded. Future IS included, per the operator ruling. */
 function canBeMissed(g){
   if (!g || isIdeaRecord(g)) return false;
+  /* Archived = saved for later. A parked goal cannot be missed while parked. */
+  if (isArchivedGoal(g)) return false;
   if (g.migrationOverdue) return false;   /* Q-1: review, not missed */
   /* HIGH-A: an explicitly accepted overdue deadline is not a miss. */
   if (g.overdueAcknowledgedDeadline && g.overdueAcknowledgedDeadline === g.deadline) return false;
@@ -3744,7 +3863,7 @@ function clearMigrationOverdue(id){
   return true;
 }
 function migrationOverdueGoals(){
-  return formalGoals().filter(function(g){ return g.migrationOverdue && g.outcome !== "missed" && !g.achievedAt; });
+  return formalGoals().filter(function(g){ return g.migrationOverdue && g.outcome !== "missed" && !g.achievedAt && !isArchivedGoal(g); });
 }
 /* Q-1 migration marker.
    A GLOBAL flag is unusable here: boot can install an authoritative state from
@@ -3892,6 +4011,7 @@ function reopenGoal(id){
 function activateFutureGoal(id){
   var g = goals.find(function(x){ return x.id === id; });
   if (!g) return;
+  if (isArchivedGoal(g)) return;   /* restore it first, deliberately */
   g.goalType = "active";
   /* Keep status in step with goalType, or the record would render as active
      while still claiming to be Future. */

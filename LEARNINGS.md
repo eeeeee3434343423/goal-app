@@ -71,3 +71,11 @@
 - Expiring Trash is a recovery payload, not a permanent deletion marker. A durable legacy tombstone must be written in the same transaction as the live-to-Trash move so stale whole-array backups cannot resurrect the goal after Trash retention ends.
 - Recovery views should query only their owning record type. Goal recovery must not fail because an unrelated Hub-app collection cannot be listed.
 - Do not use JavaScript `prompt()` for a production Recovery selector; embedded and mobile browser surfaces may reject it. Render a real accessible dialog with ordinary buttons that can be tested and announced.
+
+# 2026-08-20 - Archive and per-type tabs
+
+- Archive is a THIRD state next to live and deleted: parked, fully intact, and reversible. Only an incomplete Active, Small or Future goal can enter it, so a Victory can never be quietly hidden and a missed record can never dodge its reflection.
+- A parked goal must also leave the lifecycle, not just the lists. Without excluding it from `canBeMissed`, notifications and the overdue banner, archiving would still hand the goal a miss and a reflection debt while it sat in the Archive tab.
+- Restoring a goal whose deadline passed while it was parked is a REVIEW, not a miss. It comes back flagged `migrationOverdue` (ruling Q-1 semantics) so the operator decides, instead of inheriting a reflection debt for time it was deliberately out of execution.
+- A nullable flag that the cloud merge compares per FIELD cannot use the N-4 prune-when-default trick. `archivedAt` is always serialized, including as null: a pruned key on the newer side would let an older archived copy re-archive a goal the user had just restored.
+- One rendered list per goal kind, shown by more than one tab, beats duplicating the render. Today and the new Active/Small tabs read the same `activeList`/`smallList`; only the visibility rules differ, so the two views can never disagree.
