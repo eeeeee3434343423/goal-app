@@ -5,24 +5,28 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Achieve - Goal Tracker</title>
 <style>
-  :root{--text:#F5F7FA;--text2:#9AA4B2;--canvas:#07111F;--soft:#030712;--soft2:#0B1728;--border:#283140;
-    --blue:#4DA3FF;--blueBg:#102A43;--green:#57D38C;--greenBg:#102C20;--red:#FF6B6B;--redBg:#35191D;--gold:#F0C96B;--goldBg:#332A12;--ink:#D9E2EC;}
+  :root{--text:#F5F7FA;--text2:#93A6B8;--canvas:#0A1420;--soft:#03070E;--soft2:#0E1E2E;--border:#1E3548;
+    --blue:#4DA3FF;--blueBg:#102A43;--green:#57D38C;--greenBg:#102C20;--red:#FF5A5F;--redBg:#35191D;--gold:#FF9F55;--goldBg:#36230E;--ink:#D9E8F5;--grid:rgba(77,163,255,.075);--accent:#4DA3FF;--accent2:#FF9F55;}
+  :root[data-theme="blue-white"]{--gold:#FFFFFF;--goldBg:#172A3C;--grid:rgba(255,255,255,.07);--accent:#4DA3FF;--accent2:#FFFFFF}
+  :root[data-theme="orange-red"]{--blue:#FF9F55;--blueBg:#3B2412;--gold:#FF9F55;--goldBg:#3B2412;--red:#FF5A5F;--redBg:#421917;--grid:rgba(255,90,95,.07);--accent:#FF9F55;--accent2:#FF5A5F}
   *{box-sizing:border-box}
-  body{margin:0;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:var(--soft);color:var(--text);font-size:15px;line-height:1.5}
+  body{margin:0;font-family:Consolas,'Cascadia Mono','Segoe UI',monospace;background-color:var(--soft);background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px),radial-gradient(circle at 50% 0,var(--blueBg),var(--soft) 58%);background-size:32px 32px,32px 32px,100% 100%;background-attachment:fixed;color:var(--text);font-size:15px;line-height:1.5}
   .wrap{max-width:940px;margin:0 auto;padding:28px 20px 60px}
-  header{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px}
-  h1{font-size:26px;margin:0}
+  header{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:18px;border-bottom:1px solid var(--border);padding-bottom:16px}
+  h1{font-size:26px;margin:0;text-transform:uppercase;letter-spacing:.14em;color:var(--accent)}
   .sub{color:var(--text2);margin:2px 0 0;font-size:14px}
   .hdr-btns{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
-  button{font:inherit;border:1px solid var(--border);background:var(--canvas);color:var(--text);border-radius:8px;padding:8px 14px;cursor:pointer;font-weight:600;font-size:14px}
+  button{font:inherit;border:1px solid var(--border);background:var(--canvas);color:var(--text);border-radius:3px;padding:8px 14px;cursor:pointer;font-weight:700;font-size:13px;letter-spacing:.03em}
   button:hover{background:var(--soft2);color:var(--text)}
+  button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:2px solid var(--accent2);outline-offset:2px}
   button:disabled{color:var(--text2);opacity:.55;cursor:not-allowed}
   .primary{background:var(--blue);border-color:var(--blue);color:var(--soft)}
-  .primary:hover{background:#1F74C9}
+  .primary:hover{background:var(--blueBg);color:var(--text)}
   .secondary{background:var(--blueBg);border-color:var(--blue);color:var(--text)}
   .secondary:hover{background:#243544}
   .banner{background:var(--goldBg);border:1px solid var(--gold);border-radius:12px;padding:12px 16px;font-size:14px;margin-bottom:18px}
-  .card{background:var(--canvas);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:14px;position:relative}
+  .card{background:linear-gradient(135deg,var(--canvas),var(--soft2));border:1px solid var(--border);border-radius:4px;padding:18px;margin-bottom:14px;position:relative;box-shadow:0 10px 30px rgba(0,0,0,.22)}
+  .card:after{content:"";position:absolute;right:5px;bottom:5px;width:10px;height:10px;border-right:1px solid var(--accent);border-bottom:1px solid var(--accent);opacity:.55;pointer-events:none}
   .card.mdp{border-top:3px solid var(--gold)}
   .future-card{border-left:3px solid var(--ink)}
   .small-card{border-left:3px solid var(--blue)}
@@ -77,8 +81,20 @@
   .mode-tabs{display:flex;gap:8px;margin:10px 0 12px}
   .mode-tabs button{flex:1}
   .mode-tabs button.active{background:var(--blueBg);border-color:var(--blue);color:var(--text)}
-  .view-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 18px}
+  .view-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 18px;align-items:flex-start}
   .view-tabs button.active{background:var(--blueBg);border-color:var(--blue);color:var(--text)}
+  .menu{position:relative}
+  .menu-panel{position:absolute;z-index:35;top:calc(100% + 6px);left:0;min-width:190px;padding:6px;background:var(--canvas);border:1px solid var(--accent);box-shadow:0 14px 36px rgba(0,0,0,.5)}
+  .menu-panel[hidden]{display:none}
+  .menu-panel button{display:block;width:100%;text-align:left;border:0;border-left:2px solid transparent;background:transparent;border-radius:0}
+  .menu-panel button:hover,.menu-panel button:focus-visible,.menu-panel button.active{border-left-color:var(--accent2);background:var(--blueBg)}
+  .menu-chevron{color:var(--accent2);margin-left:4px}
+  .settings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+  .settings-card{background:linear-gradient(135deg,var(--canvas),var(--soft2));border:1px solid var(--border);padding:20px;min-height:180px;box-shadow:0 10px 30px rgba(0,0,0,.2)}
+  .settings-card h2{font-size:14px;text-transform:uppercase;letter-spacing:.12em;color:var(--accent);margin:0 0 10px}
+  .settings-card select{margin-top:10px}
+  .settings-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+  .coming-soon{display:inline-block;margin-top:10px;padding:4px 8px;border:1px solid var(--accent2);color:var(--accent2);font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.1em}
   .step{font-size:11.5px;font-weight:800;letter-spacing:.5px;color:var(--blue);text-transform:uppercase;margin:14px 0 3px}
   .step small{color:var(--text2);font-weight:500;text-transform:none;letter-spacing:0}
   input:not([type=checkbox]):not([type=file]),select,textarea{width:100%;font:inherit;border:1px solid var(--border);border-radius:8px;padding:9px 11px;background:var(--canvas);color:var(--text)}
@@ -173,18 +189,8 @@
   .idea-intro{background:var(--soft2);border:1px solid var(--border);border-radius:12px;padding:16px 18px;margin-bottom:18px;font-size:15px;line-height:1.6}
   .idea-intro button{margin-left:10px}
   .idea-card{border-left:3px dashed var(--ink)}
-  .idea-card.idea-researching{border-left:3px solid var(--blue)}
-  .idea-card.idea-researchComplete{border-left:3px solid var(--green)}
   .idea-card.idea-converted{border-left:3px solid var(--border);opacity:.85}
   .idea-chip-idea{background:var(--soft2);color:var(--ink)}
-  .idea-chip-researching{background:var(--blueBg);color:var(--blue)}
-  .idea-chip-researchComplete{background:var(--greenBg);color:var(--green)}
-  .idea-effort{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-top:10px;font-size:13.5px;border-top:1px solid var(--soft2);padding-top:11px}
-  .idea-effort input{max-width:110px}
-  .idea-effort select{max-width:120px}
-  .idea-research-time{margin-top:8px;font-size:13.5px;color:var(--ink)}
-  .idea-research-time .sub{display:inline;font-size:12.5px}
-  .idea-next{margin-top:10px;background:var(--greenBg);border:1px solid var(--green);border-radius:9px;padding:10px 13px;font-size:13.5px}
   .idea-archive{margin-top:20px;border:1px dashed var(--border);border-radius:10px;background:var(--soft2)}
   .idea-archive summary{cursor:pointer;padding:11px 14px;font-size:13.5px;font-weight:700;color:var(--text2)}
   .idea-archive>div{padding:0 14px 14px}
@@ -244,7 +250,7 @@
   .modal-btns{display:flex;gap:8px;justify-content:flex-end;margin-top:18px}
   .danger{color:var(--red);border-color:#F0BBB5;margin-right:auto}
   .hide{display:none}
-  @media(max-width:640px){.wrap{padding:20px 14px 48px}.goal-title{padding-right:0;margin-top:36px}.card-btns{left:14px;right:14px;justify-content:flex-start}}
+  @media(max-width:640px){.wrap{padding:20px 14px 48px}.goal-title{padding-right:0;margin-top:36px}.card-btns{left:14px;right:14px;justify-content:flex-start}.hdr-btns{margin-left:0;width:100%}.view-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.view-tabs>button,.view-tabs>.menu,.view-tabs>.menu>button{width:100%}.menu-panel{position:absolute;left:0;right:auto;top:calc(100% + 6px);min-width:190px;max-width:calc(100vw - 28px)}.hdr-btns .menu-panel{left:auto;right:0}.settings-grid{grid-template-columns:1fr}}
 </style>
 <script src="./sync-safety-v2.js"></script>
 <script src="./sync-v2-api.js"></script>
@@ -258,31 +264,68 @@
       <p class="sub">Goal tracking built on the Psychology of Achievement</p>
     </div>
     <div class="hdr-btns">
-      <button onclick="if(canEditOrExportGoals())exportGoals()">Export</button>
-      <button onclick="if(canEditOrExportGoals())document.getElementById('importFile').click()">Import</button>
-      <input type="file" id="importFile" accept=".json" style="display:none" onchange="if(canEditOrExportGoals())importGoals(this)">
       <button onclick="if(canEditOrExportGoals())openForm(null, 'daily')">Daily goal</button>
-      <button onclick="if(canEditOrExportGoals())openForm(null, 'small')">Small goal</button>
       <button class="secondary" onclick="if(canEditOrExportGoals())openIdeaForm(null)">New idea</button>
-      <button class="secondary" onclick="if(canEditOrExportGoals())openForm(null, 'future')">Future idea</button>
-      <button class="primary" onclick="if(canEditOrExportGoals())openForm(null, 'active')">New goal</button>
+      <div class="menu">
+        <button id="newGoalMenuButton" class="primary" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="newGoalMenu" onclick="toggleMenu('newGoalMenu')" onkeydown="handleMenuButtonKey(event,'newGoalMenu')">New goal <span class="menu-chevron" aria-hidden="true">v</span></button>
+        <div id="newGoalMenu" class="menu-panel" role="menu" aria-label="Create a goal" hidden onkeydown="handleMenuKey(event,'newGoalMenu')">
+          <button type="button" role="menuitem" onclick="selectNewGoalType('active')">Active goal</button>
+          <button type="button" role="menuitem" onclick="selectNewGoalType('small')">Small goal</button>
+          <button type="button" role="menuitem" onclick="selectNewGoalType('future')">Future goal</button>
+        </div>
+      </div>
       <button id="saveStatus" class="sub" aria-live="polite" style="align-self:center;border:1px solid var(--border);background:var(--card);border-radius:8px;padding:7px 10px;cursor:pointer" onclick="syncClick()" title="Cross-device sync">Cloud: sign in</button>
     </div>
   </header>
   <div class="banner" id="banner" style="display:none"></div>
   <div class="view-tabs">
     <button id="viewToday" class="active" onclick="setView('today')" type="button">Today</button>
-    <button id="viewActive" onclick="setView('active')" type="button">Active goals</button>
-    <button id="viewSmall" onclick="setView('small')" type="button">Small goals</button>
-    <button id="viewFuture" onclick="setView('future')" type="button">Future goals</button>
+    <div class="menu">
+      <button id="goalsMenuButton" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="goalsMenu" onclick="toggleMenu('goalsMenu')" onkeydown="handleMenuButtonKey(event,'goalsMenu')"><span id="goalsMenuLabel">Goals</span> <span class="menu-chevron" aria-hidden="true">v</span></button>
+      <div id="goalsMenu" class="menu-panel" role="menu" aria-label="Goal views" hidden onkeydown="handleMenuKey(event,'goalsMenu')">
+        <button id="viewActive" onclick="selectGoalView('active')" type="button" role="menuitem">Active goals</button>
+        <button id="viewSmall" onclick="selectGoalView('small')" type="button" role="menuitem">Small goals</button>
+        <button id="viewFuture" onclick="selectGoalView('future')" type="button" role="menuitem">Future goals</button>
+      </div>
+    </div>
     <button id="viewIdeas" onclick="setView('ideas')" type="button">Ideas</button>
     <button id="viewArchive" onclick="setView('archive')" type="button">Archive</button>
     <button id="viewNotify" onclick="setView('notifications')" type="button">Alerts <span id="notifyBadge" class="notify-badge"></span></button>
     <button id="viewDaily" onclick="setView('daily')" type="button">Daily</button>
     <button id="viewVictories" onclick="setView('victories')" type="button">Victories</button>
+    <button id="viewSettings" onclick="setView('settings')" type="button">Settings</button>
   </div>
   <div id="ideasList"></div>
   <div id="notifyList"></div>
+  <div id="settingsList">
+    <div class="sec-label">Settings</div>
+    <div class="settings-grid">
+      <section class="settings-card" aria-labelledby="appearanceHeading">
+        <h2 id="appearanceHeading">Appearance</h2>
+        <label for="themeSelect">Theme color</label>
+        <select id="themeSelect" onchange="setTheme(this.value)">
+          <option value="blue-orange">Blue and orange</option>
+          <option value="blue-white">Blue and white</option>
+          <option value="orange-red">Orange and red</option>
+        </select>
+        <p class="sub">Saved on this device only. Goal data is not changed.</p>
+      </section>
+      <section class="settings-card" aria-labelledby="dataHeading">
+        <h2 id="dataHeading">Data</h2>
+        <p class="sub">Create a JSON backup or restore one exported by Achieve.</p>
+        <div class="settings-actions">
+          <button id="settingsExport" onclick="if(canEditOrExportGoals())exportGoals()">Export</button>
+          <button id="settingsImport" onclick="if(canEditOrExportGoals())document.getElementById('importFile').click()">Import</button>
+          <input type="file" id="importFile" accept=".json" style="display:none" onchange="if(canEditOrExportGoals())importGoals(this)">
+        </div>
+      </section>
+      <section class="settings-card" aria-labelledby="procedureHeading">
+        <h2 id="procedureHeading">Procedure &amp; Rules</h2>
+        <p>The goal-creation procedure and enforceable rules will appear here after they are decided.</p>
+        <span class="coming-soon">Coming soon</span>
+      </section>
+    </div>
+  </div>
   <div id="overdueReviewList"></div>
   <div id="needsReflectionList"></div>
   <div id="activeList"></div>
@@ -301,7 +344,7 @@
       <button id="tabActive" onclick="setFormMode('active')" type="button">Active goal</button>
       <button id="tabDaily" onclick="setFormMode('daily')" type="button">Daily goal</button>
       <button id="tabSmall" onclick="setFormMode('small')" type="button">Small goal</button>
-      <button id="tabFuture" onclick="setFormMode('future')" type="button">Future idea</button>
+      <button id="tabFuture" onclick="setFormMode('future')" type="button">Future goal</button>
     </div>
 
     <div id="genericTitleBlock">
@@ -312,7 +355,7 @@
     <div id="futureFields">
       <div class="step">2 - Estimate <small>month and year are enough</small></div>
       <input type="month" id="fFutureMonth">
-      <div class="step">3 - Description <small>what this idea is and why it matters</small></div>
+      <div class="step">3 - Description <small>what this future goal is and why it matters</small></div>
       <textarea id="fDescription" placeholder="Short description, reason, or first thought"></textarea>
     </div>
 
@@ -507,6 +550,34 @@
 <script>
 "use strict";
 var KEY = "achieve.goals.v1";
+var SETTINGS_KEY = "achieve.settings.v1";
+var THEMES = { "blue-orange": 1, "blue-white": 1, "orange-red": 1 };
+function normalizeSettings(value){
+  var source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return { theme: THEMES[source.theme] ? source.theme : "blue-orange" };
+}
+function applyTheme(theme){
+  var selected = normalizeSettings({ theme: theme }).theme;
+  var root = document.documentElement;
+  if (root && root.setAttribute) root.setAttribute("data-theme", selected);
+  var input = document.getElementById("themeSelect");
+  if (input) input.value = selected;
+  return selected;
+}
+function loadSettings(){
+  var stored = null;
+  try { stored = JSON.parse(localStorage.getItem(SETTINGS_KEY)); } catch(e){}
+  var normalized = normalizeSettings(stored);
+  applyTheme(normalized.theme);
+  return normalized;
+}
+function setTheme(theme){
+  appSettings = normalizeSettings({ theme: theme });
+  applyTheme(appSettings.theme);
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(appSettings)); } catch(e){}
+  return appSettings.theme;
+}
+var appSettings = loadSettings();
 var ACTIVE_FOCUS_LIMIT = 5;
 var SMALL_FOCUS_LIMIT = 20;
 var DEMO = typeof window.__DEMO_STATE === "string";
@@ -2535,9 +2606,92 @@ function formatDate(value){
   if (isNaN(date.getTime())) return "";
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
-var VIEWS = { today: 1, active: 1, small: 1, future: 1, ideas: 1, archive: 1, notifications: 1, daily: 1, victories: 1 };
+var VIEWS = { today: 1, active: 1, small: 1, future: 1, ideas: 1, archive: 1, notifications: 1, daily: 1, victories: 1, settings: 1 };
+var MENU_IDS = ["goalsMenu", "newGoalMenu"];
+function menuButtonFor(menuId){ return document.getElementById(menuId === "goalsMenu" ? "goalsMenuButton" : "newGoalMenuButton"); }
+function setMenuOpen(menuId, open){
+  var menu = document.getElementById(menuId);
+  var button = menuButtonFor(menuId);
+  if (!menu || !button) return false;
+  menu.hidden = !open;
+  if (button.setAttribute) button.setAttribute("aria-expanded", open ? "true" : "false");
+  return open;
+}
+function closeMenus(exceptId){
+  MENU_IDS.forEach(function(id){ if (id !== exceptId) setMenuOpen(id, false); });
+}
+function toggleMenu(menuId){
+  var menu = document.getElementById(menuId);
+  if (!menu) return false;
+  var shouldOpen = !!menu.hidden;
+  closeMenus(shouldOpen ? menuId : "");
+  setMenuOpen(menuId, shouldOpen);
+  if (shouldOpen) focusMenuItem(menuId, 0);
+  return shouldOpen;
+}
+function menuItems(menuId){
+  var menu = document.getElementById(menuId);
+  return menu && menu.querySelectorAll ? Array.prototype.slice.call(menu.querySelectorAll('[role="menuitem"]')) : [];
+}
+function focusMenuItem(menuId, index){
+  var items = menuItems(menuId);
+  if (!items.length) return;
+  var safeIndex = (index + items.length) % items.length;
+  items[safeIndex].focus();
+}
+function handleMenuButtonKey(event, menuId){
+  if (!event) return;
+  if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Enter" || event.key === " "){
+    if (event.preventDefault) event.preventDefault();
+    setMenuOpen(menuId, true);
+    closeMenus(menuId);
+    focusMenuItem(menuId, event.key === "ArrowUp" ? -1 : 0);
+  } else if (event.key === "Escape") handleMenuEscape(event);
+}
+function handleMenuKey(event, menuId){
+  if (!event) return;
+  var items = menuItems(menuId);
+  var current = items.indexOf(event.target);
+  if (event.key === "Escape") return handleMenuEscape(event);
+  if (event.key !== "ArrowDown" && event.key !== "ArrowUp" && event.key !== "Home" && event.key !== "End") return;
+  if (event.preventDefault) event.preventDefault();
+  var next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : current + (event.key === "ArrowDown" ? 1 : -1);
+  focusMenuItem(menuId, next);
+}
+function handleMenuEscape(event){
+  if (!event || event.key !== "Escape") return false;
+  var openMenu = MENU_IDS.find(function(id){ var menu = document.getElementById(id); return menu && !menu.hidden; });
+  if (!openMenu) return false;
+  if (event.preventDefault) event.preventDefault();
+  setMenuOpen(openMenu, false);
+  var button = menuButtonFor(openMenu);
+  if (button && button.focus) button.focus();
+  return true;
+}
+function updateSettingsDataControls(){
+  var locked = (cloudSave.startupPending && !cloudSave.initialReadDone) || (!authoritativeStateReady && cloudSave.ready);
+  ["settingsExport", "settingsImport"].forEach(function(id){
+    var control = document.getElementById(id);
+    if (control) control.disabled = !!locked;
+  });
+  return locked;
+}
+function selectGoalView(view){
+  closeMenus();
+  setView(view);
+  var button = menuButtonFor("goalsMenu");
+  if (button && button.focus) button.focus();
+}
+function selectNewGoalType(mode){
+  closeMenus();
+  if (canEditOrExportGoals()){
+    openForm(null, mode);
+    focusFormField(mode === "active" ? "fTitleBig" : "fTitle");
+  }
+}
 function setView(view){
   currentView = VIEWS[view] === 1 ? view : "today";
+  closeMenus();
   render();
 }
 function setDisplay(id, show){
@@ -2546,7 +2700,12 @@ function setDisplay(id, show){
 }
 function setViewTab(id, active){
   var el = document.getElementById(id);
-  if (el) el.classList.toggle("active", active);
+  if (!el) return;
+  el.classList.toggle("active", active);
+  if (el.setAttribute && el.removeAttribute){
+    if (active) el.setAttribute("aria-current", "page");
+    else el.removeAttribute("aria-current");
+  }
 }
 function applyViewVisibility(){
   var isDaily = currentView === "daily";
@@ -2557,7 +2716,8 @@ function applyViewVisibility(){
   var isActiveTab = currentView === "active";
   var isSmallTab = currentView === "small";
   var isFutureTab = currentView === "future";
-  var isToday = !isDaily && !isVictories && !isIdeas && !isNotify && !isArchive && !isActiveTab && !isSmallTab && !isFutureTab;
+  var isSettings = currentView === "settings";
+  var isToday = !isDaily && !isVictories && !isIdeas && !isNotify && !isArchive && !isActiveTab && !isSmallTab && !isFutureTab && !isSettings;
   setDisplay("banner", isToday);
   /* One rendered list per goal kind, shown by Today and by its own tab. */
   setDisplay("activeList", isToday || isActiveTab);
@@ -2569,6 +2729,7 @@ function applyViewVisibility(){
   setDisplay("ideasList", isIdeas);
   setDisplay("archiveList", isArchive);
   setDisplay("notifyList", isNotify);
+  setDisplay("settingsList", isSettings);
   setViewTab("viewToday", isToday);
   setViewTab("viewActive", isActiveTab);
   setViewTab("viewSmall", isSmallTab);
@@ -2578,8 +2739,14 @@ function applyViewVisibility(){
   setViewTab("viewNotify", isNotify);
   setViewTab("viewDaily", isDaily);
   setViewTab("viewVictories", isVictories);
+  setViewTab("viewSettings", isSettings);
+  var goalsButton = document.getElementById("goalsMenuButton");
+  if (goalsButton) goalsButton.classList.toggle("active", isActiveTab || isSmallTab || isFutureTab);
+  var goalsLabel = document.getElementById("goalsMenuLabel");
+  if (goalsLabel) goalsLabel.textContent = isActiveTab ? "Goals: Active" : isSmallTab ? "Goals: Small" : isFutureTab ? "Goals: Future" : "Goals";
 }
 function render(){
+  updateSettingsDataControls();
   /* Locked while the read is PENDING, and also when it never completed. */
   if ((cloudSave.startupPending && !cloudSave.initialReadDone) || (!authoritativeStateReady && !DEMO && cloudSave.ready)){
     document.getElementById("banner").style.display = "none";
@@ -2648,7 +2815,7 @@ function render(){
 
   var futureEl = document.getElementById("futureList");
   if (!future.length){
-    futureEl.innerHTML = '<div class="sec-label">Future goals / ideas</div><div class="empty"><b>No future goals saved.</b><br>Capture ideas here before they are ready to become active goals.</div>';
+    futureEl.innerHTML = '<div class="sec-label">Future goals</div><div class="empty"><b>No future goals saved.</b><br>Capture a future goal here before it is ready to become active.</div>';
   } else {
     /* Two genuinely different kinds of record: fully planned Future goals with
        a real deadline, and older captures that were never formally planned.
@@ -3186,52 +3353,21 @@ function renderNeedsReflection(){
   el.innerHTML = html;
 }
 
-/* ---- Ideas view: considering vs researching, kept visibly distinct ---- */
-function ideaEffortRowHtml(idea){
-  var recommended = recommendedResearchMinutes(idea.roughEffortMinutes);
-  return '<div class="idea-effort">' +
-    '<label for="ideaEffort-' + idea.id + '">Roughly how much work might this take?</label>' +
-    '<input type="number" min="0" step="1" id="ideaEffort-' + idea.id + '" placeholder="e.g. 200">' +
-    '<select id="ideaEffortUnit-' + idea.id + '" aria-label="Effort unit"><option value="hours">hours</option><option value="minutes">minutes</option><option value="days">days</option></select>' +
-    '<button type="button" onclick="setIdeaEffortFromForm(\'' + idea.id + '\')">Set</button>' +
-    '</div>' +
-    (idea.roughEffortMinutes > 0
-      ? '<div class="idea-research-time"><b>Estimated effort:</b> ' + esc(formatEstimate(idea.roughEffortMinutes)) +
-        ' &nbsp;·&nbsp; <b>Suggested research time:</b> about ' + esc(formatEstimate(recommended)) +
-        '<span class="sub"> — guidance, not a requirement</span></div>'
-      : '<div class="idea-research-time sub">Add a rough estimate to see a suggested research time (about 10% of the work).</div>');
-}
+/* Legacy research fields remain in storage for compatibility, but every open
+   Idea now has one ordinary presentation and one simple edit/delete workflow. */
 function ideaCardHtml(idea){
-  var status = idea.ideaStatus;
   var preview = String(idea.brainstorm || "").trim();
   if (preview.length > 150) preview = preview.slice(0, 150) + "...";
-  var actions = "";
-  if (status === "idea"){
-    actions = '<button class="achieve-btn" onclick="startResearch(\'' + idea.id + '\')">Start research</button>' +
-      '<button onclick="openIdeaForm(\'' + idea.id + '\')">Edit</button>' +
-      '<button class="delete-card-btn" onclick="deleteIdea(\'' + idea.id + '\')" aria-label="Delete ' + esc(idea.title) + '">Delete</button>';
-  } else if (status === "researching"){
-    actions = '<button class="achieve-btn" onclick="completeResearch(\'' + idea.id + '\')">Research complete</button>' +
-      '<button onclick="copyIdeaForResearch(\'' + idea.id + '\')">Copy for Goal Research</button>' +
-      '<button onclick="returnToIdea(\'' + idea.id + '\')">Back to idea</button>' +
-      '<button onclick="openIdeaForm(\'' + idea.id + '\')">Edit</button>';
-  } else if (status === "researchComplete"){
-    actions = '<button class="primary" onclick="planGoalFromIdea(\'' + idea.id + '\')">Plan goal</button>' +
-      '<button onclick="returnToIdea(\'' + idea.id + '\')">Back to idea</button>' +
-      '<button onclick="openIdeaForm(\'' + idea.id + '\')">Edit</button>';
-  }
-  return '<div class="card idea-card idea-' + status + '">' +
+  var actions = '<button class="primary" onclick="planGoalFromIdea(\'' + idea.id + '\')">Plan goal</button>' +
+    '<button onclick="openIdeaForm(\'' + idea.id + '\')">Edit</button>' +
+    '<button class="delete-card-btn" onclick="deleteIdea(\'' + idea.id + '\')" aria-label="Delete ' + esc(idea.title) + '">Delete</button>';
+  return '<div class="card idea-card">' +
     '<div class="goal-color-strip" style="background:' + goalColorHex(idea.color) + '"></div>' +
     '<div class="card-btns">' + actions + '</div>' +
-    '<span class="status-chip idea-chip-' + status + '">' + esc(IDEA_STATUS_LABELS[status] || status) + '</span>' +
+    '<span class="status-chip idea-chip-idea">Idea</span>' +
     '<div class="goal-title">' + esc(idea.title) + '</div>' +
     (preview ? '<p class="why">' + esc(preview) + '</p>' : '<p class="why sub">No brainstorming written yet.</p>') +
-    '<div class="meta"><span>Captured ' + esc(formatDate(idea.createdAt)) + '</span>' +
-      (idea.researchStartedAt ? '<span>Research started ' + esc(formatDate(idea.researchStartedAt)) + '</span>' : '') +
-      (idea.researchCompletedAt ? '<span>Research finished ' + esc(formatDate(idea.researchCompletedAt)) + '</span>' : '') +
-    '</div>' +
-    (status === "researching" || status === "researchComplete" ? ideaEffortRowHtml(idea) : '') +
-    (status === "researchComplete" ? '<div class="idea-next">Researched enough. Next: <b>Plan goal</b> opens the full goal planner. Nothing is activated yet.</div>' : '') +
+    '<div class="meta"><span>Captured ' + esc(formatDate(idea.createdAt)) + '</span></div>' +
   '</div>';
 }
 function convertedIdeaCardHtml(idea){
@@ -3247,21 +3383,15 @@ function renderIdeasView(){
   var el = document.getElementById("ideasList");
   if (!el) return;
   var open = ideaRecords();
-  var considering = open.filter(function(i){ return i.ideaStatus === "idea"; });
-  var researching = open.filter(function(i){ return i.ideaStatus === "researching"; });
-  var ready = open.filter(function(i){ return i.ideaStatus === "researchComplete"; });
   var converted = convertedIdeaRecords();
   var deleted = deletedIdeaRecords();
 
   var html = '<div class="idea-intro"><b>Ideas</b> are possibilities, not goals. Capture the thought now; decide later.' +
     ' <button class="primary" onclick="openIdeaForm(null)">New idea</button></div>';
 
-  html += '<div class="sec-label">Ideas - considering - ' + considering.length + '</div>';
-  html += considering.length ? considering.map(ideaCardHtml).join("")
+  html += '<div class="sec-label">Ideas - ' + open.length + '</div>';
+  html += open.length ? open.map(ideaCardHtml).join("")
     : '<div class="empty"><b>No ideas captured yet.</b><br>Write down something you have been thinking about doing.</div>';
-
-  if (researching.length) html += '<div class="sec-label sub-sec">Researching - ' + researching.length + '</div>' + researching.map(ideaCardHtml).join("");
-  if (ready.length) html += '<div class="sec-label sub-sec">Research complete - ready to plan - ' + ready.length + '</div>' + ready.map(ideaCardHtml).join("");
   if (converted.length){
     html += '<details class="idea-archive"><summary>Converted into goals (' + converted.length + ')</summary><div>' +
       converted.map(convertedIdeaCardHtml).join("") + '</div></details>';
@@ -4033,10 +4163,10 @@ function setFormMode(mode){
   document.getElementById("tabDaily").classList.toggle("active", formMode === "daily");
   document.getElementById("tabSmall").classList.toggle("active", formMode === "small");
   document.getElementById("tabFuture").classList.toggle("active", formMode === "future");
-  document.getElementById("formTitle").textContent = editId ? (formMode === "future" ? "Edit future idea" : formMode === "small" ? "Edit small goal" : formMode === "daily" ? "Edit daily goal" : "Edit goal") : (formMode === "future" ? "New future idea" : formMode === "small" ? "New small goal" : formMode === "daily" ? "New daily goal" : "New goal");
-  document.getElementById("formHint").textContent = formMode === "future" ? "Capture the idea lightly. You only need a title, rough month, and short description." : formMode === "small" ? "Use this for a standalone quick win that should take one day or less." : formMode === "daily" ? "Use this for repeatable routines. Set minimum, standard, and max versions." : "The Psychology of Achievement method: written, specific, deadlined, planned, and reviewed daily.";
-  document.getElementById("titleHelp").textContent = formMode === "future" ? "short name for the idea" : formMode === "small" ? "one-day-or-less outcome" : formMode === "daily" ? "repeatable daily outcome" : "written, positive, specific, measurable";
-  document.getElementById("saveButton").textContent = formMode === "future" ? "Save idea" : formMode === "small" ? "Save small goal" : formMode === "daily" ? "Save daily goal" : "Save goal";
+  document.getElementById("formTitle").textContent = editId ? (formMode === "future" ? "Edit future goal" : formMode === "small" ? "Edit small goal" : formMode === "daily" ? "Edit daily goal" : "Edit goal") : (formMode === "future" ? "New future goal" : formMode === "small" ? "New small goal" : formMode === "daily" ? "New daily goal" : "New goal");
+  document.getElementById("formHint").textContent = formMode === "future" ? "Capture the future goal lightly. You only need a title, rough month, and short description." : formMode === "small" ? "Use this for a standalone quick win that should take one day or less." : formMode === "daily" ? "Use this for repeatable routines. Set minimum, standard, and max versions." : "The Psychology of Achievement method: written, specific, deadlined, planned, and reviewed daily.";
+  document.getElementById("titleHelp").textContent = formMode === "future" ? "short name for the future goal" : formMode === "small" ? "one-day-or-less outcome" : formMode === "daily" ? "repeatable daily outcome" : "written, positive, specific, measurable";
+  document.getElementById("saveButton").textContent = formMode === "future" ? "Save future goal" : formMode === "small" ? "Save small goal" : formMode === "daily" ? "Save daily goal" : "Save goal";
   /* The formal planning flow uses its own large "1 - The goal" question. */
   var generic = document.getElementById("genericTitleBlock");
   if (generic) generic.classList.toggle("hide", formMode === "active");
@@ -4087,7 +4217,7 @@ function openForm(id, mode){
   var g = id ? goals.find(function(x){ return x.id === id; }) : null;
   /* EVERY formal goal - draft, migrated legacy record, finalized Future, or
      Active - opens the full planning experience with all of its data editable
-     and Copy for AI Review available. Only the lightweight "Future idea"
+     and Copy for AI Review available. Only the lightweight Future Goal
      capture form stays light, and only for records never formally planned. */
   var needsFullPlanning = !!(g && (g.status === "needsPlanning" || g.status === "draft" || g.status === "future" || g.status === "active") && g.goalType !== "small" && g.goalType !== "daily");
   lockedEditMode = g ? (needsFullPlanning ? "active" : g.goalType) : null;
@@ -4646,7 +4776,7 @@ function saveForm(keepOpen){
      into it on every keystroke, so saving must never overwrite it here. */
   var title = document.getElementById("fTitle").value.trim();
   if (!title){
-    var message = formMode === "future" ? "Give the future idea a title first."
+    var message = formMode === "future" ? "Give the future goal a title first."
       : formMode === "small" ? "Give the small goal a title first."
       : formMode === "daily" ? "Give the daily goal a title first."
       : "Write the goal down first - that is the whole method.";
@@ -4860,6 +4990,7 @@ function importGoals(inp){
   inp.value = "";
 }
 
+closeMenus();
 load();
 loadNotifications();
 /* Deadline evaluation runs on load, outside normalize(), so the determinism
@@ -4872,7 +5003,17 @@ loadNotifications();
 render();
 if (!window.__SKIP_CLOUD_SAVE) initCloudSave();
 else installAuthoritativeState("local-only");
-window.addEventListener("storage", function(ev){ if (ev && ev.key === KEY){ load(); render(); } });
+window.addEventListener("storage", function(ev){
+  if (!ev) return;
+  if (ev.key === KEY){ load(); render(); }
+  if (ev.key === SETTINGS_KEY) appSettings = loadSettings();
+});
+if (document.addEventListener){
+  document.addEventListener("click", function(ev){
+    if (!ev || !ev.target || !ev.target.closest || !ev.target.closest(".menu")) closeMenus();
+  });
+  document.addEventListener("keydown", handleMenuEscape);
+}
 </script>
 </body>
-</html>
+</html>

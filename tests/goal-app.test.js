@@ -25,13 +25,13 @@ test("dark theme gives controls explicit readable foregrounds", () => {
   assert.match(html, /button\s*\{[^}]*color:var\(--text\)/s);
   assert.match(html, /\.mode-tabs\s+button\.active\s*\{[^}]*color:var\(--text\)/s);
   assert.match(html, /\.view-tabs\s+button\.active\s*\{[^}]*color:var\(--text\)/s);
-  assert.match(html, /--soft:#030712/);
-  assert.match(html, /--canvas:#07111F/);
-  assert.match(html, /--soft2:#0B1728/);
+  assert.match(html, /--soft:#03070E/);
+  assert.match(html, /--canvas:#0A1420/);
+  assert.match(html, /--soft2:#0E1E2E/);
   assert.match(html, /--text:#F5F7FA/);
-  assert.match(html, /--text2:#9AA4B2/);
+  assert.match(html, /--text2:#93A6B8/);
   assert.match(html, /\.primary\s*\{[^}]*color:var\(--soft\)/s);
-  assert.ok(contrast("#030712", "#4DA3FF") >= 4.5);
+  assert.ok(contrast("#03070E", "#4DA3FF") >= 4.5);
 });
 
 test("approved saved goals and Paint Room victory are never filtered or auto-trashed", () => {
@@ -498,11 +498,11 @@ test("Goal views withhold device-only cache until the first authenticated cloud 
 
 test("Goal creation, import, and export are locked while cloud confirmation is pending", () => {
   const html = fs.readFileSync(htmlPath, "utf8");
-  const header = html.slice(html.indexOf('<div class="hdr-btns">'), html.indexOf('<div class="banner"'));
+  const settings = html.slice(html.indexOf('id="settingsList"'), html.indexOf('id="overdueReviewList"'));
 
-  assert.match(header, /if\(canEditOrExportGoals\(\)\)exportGoals\(\)/);
-  assert.match(header, /if\(canEditOrExportGoals\(\)\)importGoals\(this\)/);
-  assert.match(header, /if\(canEditOrExportGoals\(\)\)openForm\(null, 'active'\)/);
+  assert.match(settings, /if\(canEditOrExportGoals\(\)\)exportGoals\(\)/);
+  assert.match(settings, /if\(canEditOrExportGoals\(\)\)importGoals\(this\)/);
+  assert.match(html, /function selectNewGoalType\(mode\)[\s\S]*if \(canEditOrExportGoals\(\)\)\{[\s\S]*openForm\(null, mode\)/);
   assert.match(html, /function canEditOrExportGoals\(\)/);
   assert.match(html, /Cloud still loading - edits are locked/);
 });

@@ -1141,3 +1141,25 @@ Every active Major Goal card, including the Major Definite Purpose, has a visibl
 ## Verification and release
 
 Run the complete Goal suite, syntax and diff checks, then review the diff for accidental multi-goal removal, revision races, inaccessible button labels, and delete-on-cancel behavior. After approval to implement this plan, deploy to the canonical Goal URL and use a disposable Major Goal to verify create, delete, reload, Trash visibility, two authenticated clients, and zero console errors without touching the user's saved goals.
+
+# Approved: Goals navigation, Settings, themes, and Ideas simplification (2026-09-11)
+
+## Planned files and interfaces
+
+1. `goal-app.html`
+   - Add accessible `Goals` and `New Goal` dropdown menus while retaining the existing `setView(view)` and `openForm(id, mode)` entry points.
+   - Add the `settings` view to `VIEWS`, move Export/Import into it, and keep `canEditOrExportGoals()` on both actions.
+   - Add per-device `achieve.settings.v1` storage with `normalizeSettings(value)`, `loadSettings()`, `applyTheme(theme)`, and `setTheme(theme)`; accepted themes are `blue-orange`, `blue-white`, and `orange-red`.
+   - Restyle presentation with Central Command HUD tokens without changing Goal records or cloud sync.
+   - Render every unconverted Idea, including legacy `researching` and `researchComplete` records, as an ordinary Idea; remove all research UI/actions while preserving legacy fields byte-for-byte through normalization, export, backup, and restore.
+   - Add a non-enforcing Procedure & Rules placeholder in Settings.
+2. `tests/ui-settings-refresh.test.js`, `tests/goal-app.test.js`, and `tests/ideas.test.js`
+   - Cover menu structure, keyboard/outside-click behavior, view selection, Settings-only import/export, all themes, reload/malformed fallback, and mobile CSS.
+   - Prove legacy research metadata remains unchanged while research UI/actions are absent and the records render as ordinary Ideas.
+   - Replace only assertions made obsolete by the approved UI change; retain the legacy research data/lifecycle tests as compatibility guards.
+3. `LEARNINGS.md`
+   - Record the safe retirement pattern for user-facing lifecycle features whose legacy data must remain recoverable.
+
+## Verification and release
+
+Run the new tests first, then the complete suite, inline-script syntax check, maintenance check, data compatibility backtests, and an adversarial diff review. Commit and push only the planned files to `master`, wait for Vercel production, and verify the canonical URL, controls, themes, console/network state, signed-out behavior, authenticated persistence, two-client parity, and rollback availability without editing the user's saved goals.

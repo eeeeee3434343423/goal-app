@@ -221,18 +221,23 @@ test("starting research does not create a Future or Active goal", () => {
   assert.doesNotMatch(elements.futureList.innerHTML, /Become fluent in Spanish/);
 });
 
-test("Ideas and Researching records are shown separately", () => {
+test("legacy research statuses render together as ordinary Ideas without losing metadata", () => {
   const { context, elements } = createHarness([]);
   newIdea(context, elements, "Only considering this one");
   newIdea(context, elements, "Actively researching this one");
   const researching = context.ideaRecords().find((i) => i.title === "Actively researching this one");
   context.startResearch(researching.id);
+  const startedAt = researching.researchStartedAt;
   context.setView("ideas");
   context.render();
 
   const html = elements.ideasList.innerHTML;
-  assert.match(html, /Ideas - considering/i);
-  assert.match(html, /Researching/i);
+  assert.match(html, /Ideas - 2/i);
+  assert.match(html, /Only considering this one/);
+  assert.match(html, /Actively researching this one/);
+  assert.doesNotMatch(html, /Start research|Research complete|Copy for Goal Research|Suggested research|Estimated effort|Back to idea/);
+  assert.equal(researching.ideaStatus, "researching", "the legacy status remains recoverable data");
+  assert.equal(researching.researchStartedAt, startedAt, "rendering never rewrites legacy timing metadata");
   assert.ok(html.indexOf("Only considering this one") !== html.indexOf("Actively researching this one"));
 });
 

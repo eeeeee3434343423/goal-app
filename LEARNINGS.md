@@ -79,3 +79,11 @@
 - Restoring a goal whose deadline passed while it was parked is a REVIEW, not a miss. It comes back flagged `migrationOverdue` (ruling Q-1 semantics) so the operator decides, instead of inheriting a reflection debt for time it was deliberately out of execution.
 - A nullable flag that the cloud merge compares per FIELD cannot use the N-4 prune-when-default trick. `archivedAt` is always serialized, including as null: a pruned key on the newer side would let an older archived copy re-archive a goal the user had just restored.
 - One rendered list per goal kind, shown by more than one tab, beats duplicating the render. Today and the new Active/Small tabs read the same `activeList`/`smallList`; only the visibility rules differ, so the two views can never disagree.
+
+# 2026-09-11 - Retiring UI without retiring user data
+
+- When a lifecycle feature is removed from the interface, preserve its legacy fields and compatibility code until backups and older clients no longer depend on them. Render old statuses through the simpler current presentation, and keep useful forward paths such as Idea to Goal available without requiring the retired lifecycle.
+- Device-only appearance preferences belong in a separate settings key, never inside the synced Goal array, so changing a theme cannot create goal revisions or cross-device merge conflicts.
+- This repository's large HTML file has nonstandard line endings. After a targeted patch, verify the ordinary diff (not only a whitespace-ignoring diff) and restore the existing byte convention before handoff so a small UI change stays reviewable.
+- Dropdown reviews must include focus after selection, both arrow-entry directions, and mobile anchoring; a menu that closes correctly can still leave keyboard focus hidden or depend on an implicit browser event global.
+- A UI rename is not complete at the button. Audit modal titles, validation, empty states, hints, and field descriptions while leaving only explicitly historical legacy wording unchanged.
