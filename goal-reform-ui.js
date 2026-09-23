@@ -731,6 +731,11 @@
     if (!host || !host.mountEl) return;
     host.mountEl.innerHTML = renderView();
   }
+  // After a screen change, bring its top into view if the user had scrolled past it.
+  function toTop() {
+    var el = host && host.mountEl;
+    if (el && el.getBoundingClientRect && el.scrollIntoView && el.getBoundingClientRect().top < 0) el.scrollIntoView({ block: "start" });
+  }
 
   var LIVE = {
     vague: function (plan, path) { return vagueChips(getPath(plan, path)); },
@@ -788,6 +793,7 @@
       state.confirm = null;
       state.flash = "";
       render();
+      toTop();
     },
     openWorkshop: function (id, stage) {
       state.view = "workshop"; state.goalId = id; state.confirm = null; state.flash = "";
@@ -795,6 +801,7 @@
       var target = stage == null ? firstOpenStage(plan) : stage;
       state.stage = canEnter(plan, target) ? target : firstOpenStage(plan);
       render();
+      toTop();
     },
     stageTo: function (i) {
       var plan = planOf(findGoal(state.goalId));
@@ -802,6 +809,7 @@
       flush(state.goalId);
       state.stage = i;
       render();
+      toTop();
     },
     set: function (path, value, kind) {
       var id = state.goalId;
@@ -885,6 +893,7 @@
       state.confirm = { kind: "activate", id: id };
       state.flash = "";
       render();
+      toTop();
       return true;
     },
     confirmActivate: function (id, activationOpts) {
@@ -1127,7 +1136,7 @@
     ".grf-next p{margin:6px 0 0;font-size:16px;font-weight:700}",
     ".grf-hours{font-size:12px;color:var(--text2);margin:10px 0 0}",
     ".grf-log{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:10px}",
-    ".grf-log input{width:80px;background:var(--soft);color:var(--text);border:1px solid var(--border);border-radius:3px;padding:4px 6px;font:inherit}",
+    ".grf .grf-log input[type=number]{flex:0 0 90px;width:90px;background:var(--soft);color:var(--text);border:1px solid var(--border);border-radius:3px;padding:4px 6px;font:inherit}",
     ".grf-pace{font-size:12px;font-weight:700;letter-spacing:.1em;padding:3px 10px;border-radius:10px;border:1px solid currentColor}",
     ".grf-pace-on-pace,.grf-pace-ahead{color:var(--green)}.grf-pace-behind{color:var(--gold)}.grf-pace-overdue{color:var(--red)}",
     ".grf-campaign{border:1px solid var(--border);border-radius:4px;margin:8px 0;background:var(--canvas)}",
