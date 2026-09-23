@@ -1,0 +1,5 @@
+# Local-only developer tools for the Goal Reform demo. They reference paths on
+# Joel's PC and are never needed by the live app.
+scripts/
+reform-demo.cmd
+reform-preview.html

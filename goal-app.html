@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="black-orange">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -567,7 +567,7 @@ var SETTINGS_KEY = "achieve.settings.v1";
 var THEMES = { "blue-orange": 1, "blue-white": 1, "orange-red": 1, "black-orange": 1 };
 function normalizeSettings(value){
   var source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
-  return { theme: THEMES[source.theme] ? source.theme : "blue-orange" };
+  return { theme: THEMES[source.theme] ? source.theme : "black-orange" };
 }
 function applyTheme(theme){
   var selected = normalizeSettings({ theme: theme }).theme;
@@ -4270,6 +4270,10 @@ async function activatePlannedGoal(id, opts){
     return true;
   } catch(error) {
     console.warn("Goal activation failed", error && error.code, error && error.message);
+    /* The focus-record rules may not be deployed yet. The one-goal rule was
+       already enforced above against the synced goals, so activate through the
+       ordinary record sync; the atomic focus record takes over once the rules ship. */
+    if (focusRulesMissing(error)) return activateGoalLocally(index, candidate, "Cloud: synced (focus lock via goal sync)");
     if (error && error.code === "FOCUS_LOCKED") {
       var holder = goals.find(function(x){ return x.id === error.activeGoalId; });
       return activationBlocked("Complete \"" + ((holder && holder.title) || "your active goal") + "\" first. Only one goal can be active, and it stays active until it's completed.");
@@ -4323,12 +4327,16 @@ function reformCreateGoal(title){
 }
 /* Signed out: the one-goal lock is enforced on this device (activationBlocker
    already refused a second goal). It syncs as an ordinary record later. */
-function activateGoalLocally(index, candidate){
+function focusRulesMissing(error){
+  var code = String((error && error.code) || "");
+  return code === "permission-denied" || code === "PERMISSION_DENIED" || /missing or insufficient permissions/i.test(String((error && error.message) || ""));
+}
+function activateGoalLocally(index, candidate, statusText){
   if (!candidate.finalizedAt) candidate.finalizedAt = Date.now();
   if (!candidate.initialPlanSnapshot) candidate.initialPlanSnapshot = snapshotGoal(candidate);
   goals[index] = normalize(candidate);
   save();
-  setSaveStatus("Local lock: active on this device (sign in to sync)");
+  setSaveStatus(statusText || "Local lock: active on this device (sign in to sync)");
   return true;
 }
 async function reformActivate(id, opts){
@@ -4364,6 +4372,11 @@ async function reformComplete(id){
     goals[index] = normalize(before);
     saveLocalGoals();
     render();
+    /* No focus record to release (rules not deployed yet, or the goal took the
+       focus before they were): complete through the ordinary path instead. */
+    if (focusRulesMissing(error) || (error && error.code === "FOCUS_MISMATCH" && error.activeGoalId == null)) {
+      return completeGoal(id) ? { ok: true } : { ok: false, message: "This goal can't be completed right now." };
+    }
     console.warn("Goal completion failed", error && error.code, error && error.message);
     return { ok: false, message: error && error.code === "FOCUS_MISMATCH" ? "Only the active goal can be completed. Reload to see the current focus." : "Completion couldn't be confirmed in the cloud. Nothing was changed; try again." };
   }
