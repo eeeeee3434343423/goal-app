@@ -663,7 +663,8 @@ test("unfinished small goals are shown honestly in the Victory record", () => {
 test("an initial plan snapshot is written once at finalization and never overwritten", () => {
   const { context, elements } = createHarness([]);
   context.goals = [context.normalize(activeGoal({ status: "draft" }))];
-  assert.equal(context.finalizeGoal("g1", "active"), true);
+  assert.equal(context.finalizeGoal("g1", "active"), false, "reform: unplanned goals need the switch-over");
+  assert.equal(context.switchOverLegacyGoal("g1", true), true);
   const snap = context.goals[0].initialPlanSnapshot;
   assert.ok(snap, "snapshot created");
   assert.equal(snap.title, "Earn my first 500 per month from tutoring");

@@ -457,7 +457,10 @@ test("a valid Draft can be finalized to Future or Active, and only when asked", 
   assert.equal(context.finalizeGoal(id, "future"), true);
   assert.equal(context.goals[0].status, "future");
 
-  assert.equal(context.finalizeGoal(id, "active"), true);
+  // Reform: a Draft without a Clarity Gate plan can't take the focus from the form.
+  assert.equal(context.finalizeGoal(id, "active"), false);
+  assert.equal(context.goals[0].status, "future");
+  assert.equal(context.switchOverLegacyGoal(id, true), true);
   assert.equal(context.goals[0].status, "active");
 });
 
@@ -707,7 +710,8 @@ test("normalizing the same data twice produces identical JSON, so sync sees no p
 
 test("activating a Future goal keeps status and goalType in step", () => {
   const { context } = createHarness([{ id: "f", title: "Planned goal", goalType: "future", status: "future", deadline: "2027-01-01" }]);
-  context.activateFutureGoal("f");
+  assert.equal(context.activateFutureGoal("f"), false, "reform: unplanned goals need the switch-over");
+  assert.equal(context.switchOverLegacyGoal("f"), true);
   const g = context.goals.find((x) => x.id === "f");
   assert.equal(g.goalType, "active");
   assert.equal(g.status, "active", "status must not still claim Future while rendering as active");

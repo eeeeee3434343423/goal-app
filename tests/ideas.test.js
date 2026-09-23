@@ -481,7 +481,8 @@ test("a Goal converted from an Idea still obeys every formal rule", () => {
     { what: "Finish the first 20 Anki decks", why: "Vocabulary is the current bottleneck" },
     { what: "Watch one Spanish film each week", why: "Listening speed is what breaks conversations" },
   ]);
-  assert.equal(context.finalizeGoal(goalId, "active"), true, "three enables Active");
+  assert.equal(context.finalizeGoal(goalId, "active"), false, "reform: an unplanned goal can't take the focus from the form");
+  assert.equal(context.switchOverLegacyGoal(goalId, true), true, "only the explicit switch-over can");
   assert.equal(context.goals.find((g) => g.id === goalId).originIdeaId, ideaId, "lineage survives finalizing");
 });
 

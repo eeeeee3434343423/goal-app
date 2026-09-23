@@ -867,12 +867,15 @@ test("smallGoalSummary handles hundreds of items", () => {
   assert.equal(context.recentSmallGoals(goal, 4).length, 4);
 });
 
-test("activateFutureGoal moves a future goal into active state and keeps description as why", () => {
+test("an unplanned future goal only takes the focus through the switch-over, keeping description as why", () => {
   const { context, storage } = createHarness([
     { id: "f1", title: "Future", goalType: "future", futureMonth: "2027-01", description: "Useful later" },
   ]);
 
-  context.activateFutureGoal("f1");
+  // Reform (Joel, 2026-09-22): unplanned goals can't bypass the Clarity Gate / focus lock.
+  assert.equal(context.activateFutureGoal("f1"), false);
+  assert.equal(context.goals[0].goalType, "future");
+  assert.equal(context.switchOverLegacyGoal("f1"), true);
 
   const saved = JSON.parse(storage["achieve.goals.v1"]);
   assert.equal(saved[0].goalType, "active");

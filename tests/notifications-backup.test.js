@@ -207,7 +207,8 @@ test("an Active goal gets no Future reminder", () => {
 test("moving a Future goal to Active stops it being reminded again", () => {
   const { context } = createHarness([futureGoal({ deadline: dateOffset(20) })]);
   assert.equal(context.notificationState.items.length, 0, "outside the window to begin with");
-  context.activateFutureGoal("f1");
+  assert.equal(context.activateFutureGoal("f1"), false, "reform: unplanned goals need the switch-over");
+  context.switchOverLegacyGoal("f1");
   assert.equal(context.evaluateNotifications(Date.now() + 11 * DAY), 0, "no reminder once it is Active");
 });
 

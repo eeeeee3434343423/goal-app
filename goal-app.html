@@ -4297,6 +4297,11 @@ function activationBlocked(message){
   setSaveStatus("Activation blocked: " + message);
   return false;
 }
+function holdsFocus(g){
+  if (!g || g.goalType !== "active" || isIdeaRecord(g) || isArchivedGoal(g)) return false;
+  if (g.achievedAt || g.outcome === "completed" || g.outcome === "missed") return false;
+  return g.status === "active" || !g.status;
+}
 function activateLegacyGoalLocally(id, finalize, options){
   /* A legacy record deliberately has no P50 plan. It may take focus only
      during the one-time, explicit switch-over; old Future/form controls must
@@ -4306,7 +4311,9 @@ function activateLegacyGoalLocally(id, finalize, options){
   }
   var g = goals.find(function(x){ return x.id === id; });
   if (!g || isArchivedGoal(g)) return false;
-  var active = goals.find(function(x){ return x.id !== id && x.goalType === "active" && !x.achievedAt; });
+  /* Ideas are stored with goalType "active", and completed/missed/archived
+     records are history: none of them hold the focus. */
+  var active = goals.find(function(x){ return x.id !== id && holdsFocus(x); });
   if (active) return activationBlocked("Complete '" + (active.title || "the active goal") + "' first");
   g.goalType = "active";
   g.status = "active";
