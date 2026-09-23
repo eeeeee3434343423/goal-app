@@ -1270,3 +1270,13 @@ Required functions:
 ## Approval gate
 
 No application, sync, rules, test, deployment, or cloud-data changes will be made until this plan is approved. Approval authorizes only the listed files and phased behavior.
+
+## 2026-09-23 Codex worktree handoff (approved in Agent Chat)
+
+Base `a88845c`, branch `reform/codex`; Claude owns `goal-app.html`, `goal-reform-ui.js`, and `goal-reform-core.js`. This slice touches only `tests/goal-reform.test.js`, `tests/sync-v2-runtime.test.js`, `scripts/rehearse-goal-migration.js`, `scripts/launch-reform-demo.js`, `reform-demo.cmd`, `PLAN.md`, and `LEARNINGS.md`.
+
+1. Run the actual app inline script in a VM with `GoalReformCore` injected. Replace obsolete in-page forecast calls with core shape assertions; retain legacy and atomic-activation coverage.
+2. Exercise two app clients against the in-memory v2 transaction port: focus refusal, completion rollback, atomic release, and subsequent activation.
+3. Add a local-only demo server launched with `reform-demo.cmd`; it copies the verified A backup into the browser origin and disables cloud startup without changing production HTML or backup bytes.
+4. Rehearse `normalize()` and `pipelineStage()` against all 24 backup records, assert no record or field loss and unchanged Daily values, and print counts.
+5. Run targeted and full tests, review the diff, then commit this slice for Claude to integrate. No deployment or cloud write.

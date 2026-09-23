@@ -92,3 +92,9 @@
 
 - Additive planning fields must prune their untouched null default before persistence. Otherwise every legacy goal appears changed, causing unnecessary cross-device revisions and avoidable merge races.
 - A P50 deadline calculator must use deterministic inputs and sampling so two clients show the same forecast. It may calculate pace and validate a user-selected date or duration, but it must never invent estimates, capacity, or a deadline.
+
+# 2026-09-23 - Reform integration rehearsal
+
+- Tests of the page must inject the one shared `GoalReformCore` before evaluating its inline script. The old page-local forecast functions are gone; testing them gave false failures instead of testing the integration contract.
+- A canonical-focus refusal must be tested through the app adapter with a stale client, not just at the low-level transaction port. On completion failure, compare serialized local records before and after to catch hidden state changes.
+- A production-data demo can stay local and reversible: read the backup without modifying it, copy its bytes into an isolated localhost browser origin, disable cloud startup before the app script runs, and serve only explicit assets. Rehearsal must verify source bytes and Daily user values, not only count records.

@@ -118,6 +118,56 @@ function runtime() {
   return { context, records, port };
 }
 
+function appClient(port, localGoals, revisions) {
+  const html = fs.readFileSync(path.join(__dirname, "..", "goal-app.html"), "utf8");
+  const inline = html.match(/<script>([\s\S]*)<\/script>/);
+  assert.ok(inline);
+  const elements = {};
+  const element = () => ({ value: "", checked: false, innerHTML: "", textContent: "", style: {}, files: [],
+    classList: { add() {}, remove() {}, toggle() { return false; }, contains() { return false; } },
+    click() {}, focus() {}, appendChild() {}, removeChild() {} });
+  const localStorage = { getItem() { return "[]"; }, setItem() {} };
+  const window = { __SKIP_CLOUD_SAVE: true, __V2_SYNC_ACTIVE: true, addEventListener() {}, scrollTo() {},
+    readGoalFocus: () => port.readFocus(),
+    commitGoalActivation: (mutation, goalRevision, focusRevision) => port.commitGoalActivation(mutation, goalRevision, focusRevision, "client"),
+    commitGoalCompletion: (mutation, goalRevision, focusRevision) => port.commitGoalCompletion(mutation, goalRevision, focusRevision, "client"),
+    getV2RecordRevision: (_, id) => revisions[id] };
+  const context = { window, console, Date, Math, Blob: class Blob {}, URL: { createObjectURL() { return "blob:test"; } },
+    FileReader: class FileReader {}, setTimeout() { return 0; }, clearTimeout() {}, setInterval() { return 0; }, clearInterval() {},
+    alert() {}, confirm() { return true; }, prompt() { return null; }, localStorage,
+    navigator: { clipboard: { writeText() { return Promise.resolve(); } } },
+    document: { getElementById(id) { return elements[id] || (elements[id] = element()); }, createElement: element },
+    GoalReformCore: require("../goal-reform-core.js") };
+  Object.assign(window, { window, document: context.document, localStorage, navigator: context.navigator, GoalReformCore: context.GoalReformCore });
+  vm.createContext(context);
+  vm.runInContext(inline[1], context, { filename: "goal-app.html" });
+  context.goals = localGoals.map((goal) => context.normalize(goal));
+  context.cloudSave.ready = true;
+  context.cloudSave.user = { uid: "u1" };
+  context.cloudSave.initialReadDone = true;
+  context.cloudSave.startupPending = false;
+  context.authoritativeStateReady = true;
+  return context;
+}
+
+function readyGoal(id, status) {
+  const core = require("../goal-reform-core.js");
+  const plan = { whyLayers: ["Build income", "Create independence", "Work on my own terms"],
+    costOfInaction: "Another year without independent income", definition: "Earn $500 in a calendar month",
+    successEvidence: "Stripe export shows $500 in one month", exclusions: "No mobile app",
+    research: [1, 2, 3].map((n) => ({ source: `Interview ${n}`, insight: `Customer ${n} would pay $20` })),
+    campaigns: [1, 2, 3].map((n) => ({ id: `c${n}`, title: `Campaign ${n}`,
+      result: `${n} validated customer outcomes recorded`, estimate: { best: 5, likely: 8, worst: 13 },
+      operations: [{ title: `Operation ${n}`, missions: [{ text: `Publish deliverable ${n}` }] }] })),
+    capacity: { hoursPerWeek: 10, constraints: "Two hours weekdays" },
+    nextAction: { text: "Write the first draft", minutes: 20 },
+    obstacles: [{ if: "I miss a session", then: "I reschedule within 24 hours" }],
+    growth: { income: 5, skill: 4, health: 1, relationships: 2, freedom: 5 } };
+  plan.deadlineDecision = { inputMode: "date", date: core.calculateDeadlineForecast(plan, "2026-09-23").dates.p50,
+    rationale: "A coin-flip date sharpens focus", assumptions: "Ten hours weekly" };
+  return { id, title: id, goalType: status === "active" ? "active" : "future", status, goalPlan: plan };
+}
+
 test("runtime migrates legacy goals once and later syncs only changed records", async () => {
   const { context, records, port } = runtime();
   await context.configureV2Sync({ uid: "u1", deviceId: "d1", port });
@@ -260,6 +310,46 @@ test("completion atomically records completion and releases canonical focus", as
     5
   );
   assert.equal(activated.focus.activeGoalId, "second");
+});
+
+test("app clients enforce canonical focus, roll back failed completion, then permit the next goal", async () => {
+  const { records, port } = runtime();
+  const x = readyGoal("X", "future");
+  const y = readyGoal("Y", "future");
+  records.goals.push(
+    { id: "X", payload: structuredClone(x), revision: 1, schemaVersion: 2 },
+    { id: "Y", payload: structuredClone(y), revision: 1, schemaVersion: 2 }
+  );
+  const aRevisions = { X: 1, Y: 1 };
+  const a = appClient(port, [x, y], aRevisions);
+  const b = appClient(port, [x, y], { X: 2, Y: 1 });
+  assert.equal((await a.reformActivate("X", { today: "2026-09-23" })).ok, true);
+  aRevisions.X = 2;
+  assert.equal(records.focus.activeGoalId, "X");
+  const yBefore = JSON.stringify(b.goals.find((goal) => goal.id === "Y"));
+  const refused = await b.reformActivate("Y", { today: "2026-09-23" });
+  assert.equal(refused.ok, false);
+  assert.match(refused.message, /Complete "X" first/);
+  assert.equal(JSON.stringify(b.goals.find((goal) => goal.id === "Y")), yBefore);
+  assert.equal(records.goals.find((goal) => goal.id === "Y").revision, 1);
+
+  let ordinarySyncCalls = 0;
+  a.syncV2Records = async () => { ordinarySyncCalls++; };
+  const completedBefore = JSON.stringify(a.goals.find((goal) => goal.id === "X"));
+  const originalCommit = a.window.commitGoalCompletion;
+  a.window.commitGoalCompletion = async () => { throw new Error("offline"); };
+  assert.equal((await a.reformComplete("X")).ok, false);
+  assert.equal(JSON.stringify(a.goals.find((goal) => goal.id === "X")), completedBefore, "local goal must roll back byte-identically");
+  assert.equal(records.focus.activeGoalId, "X");
+  assert.equal(ordinarySyncCalls, 0, "completion must not start an ordinary goal sync while the focus transaction is pending");
+  a.window.commitGoalCompletion = originalCommit;
+  assert.equal((await a.reformComplete("X")).ok, true);
+  assert.equal(records.goals.find((goal) => goal.id === "X").payload.outcome, "completed");
+  assert.ok(records.goals.find((goal) => goal.id === "X").payload.achievedAt);
+  assert.equal(records.focus.activeGoalId, null);
+  assert.equal(ordinarySyncCalls, 0);
+  assert.equal((await b.reformActivate("Y", { today: "2026-09-23" })).ok, true);
+  assert.equal(records.focus.activeGoalId, "Y");
 });
 
 test("completion cannot release another goal's canonical focus", async () => {
