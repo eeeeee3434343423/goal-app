@@ -352,3 +352,96 @@ test("the core exposes no AI/network surface and never picks a date for the user
   core.goalPlanReadiness(plan, { today: TODAY });
   assert.equal(plan.deadlineDecision, null, "readiness must not fill in a deadline");
 });
+
+// ---------------------------------------------------------------- pipeline + focus lock
+
+function goal(id, fields) { return Object.assign({ id, title: "Goal " + id }, fields); }
+
+test("pipelineStage derives the stage from existing fields without storing one", () => {
+  const opts = { today: TODAY };
+  assert.equal(core.pipelineStage(goal("d", { goalType: "daily" }), opts), "daily");
+  assert.equal(core.pipelineStage(goal("i", { recordKind: "idea", goalType: "active" }), opts), "backlog", "ideas carry goalType active for storage only");
+  assert.equal(core.pipelineStage(goal("x", { recordKind: "idea", ideaDeletedAt: 5 }), opts), "deleted");
+  assert.equal(core.pipelineStage(goal("f", { goalType: "future", status: "needsPlanning" }), opts), "backlog");
+  assert.equal(core.pipelineStage(goal("p", { goalType: "future", status: "future", goalPlan: { definition: "x" } }), opts), "defining");
+  assert.equal(core.pipelineStage(goal("r", { goalType: "future", status: "future", goalPlan: readyPlan() }), opts), "ready");
+  assert.equal(core.pipelineStage(goal("a", { goalType: "active", status: "active" }), opts), "active");
+  assert.equal(core.pipelineStage(goal("l", { goalType: "active" }), opts), "active", "legacy active without status");
+  assert.equal(core.pipelineStage(goal("c", { goalType: "active", status: "active", achievedAt: 99 }), opts), "done");
+  assert.equal(core.pipelineStage(goal("m", { goalType: "active", status: "active", outcome: "missed" }), opts), "closed");
+  assert.equal(core.pipelineStage(goal("s", { goalType: "small" }), opts), "small");
+  assert.equal(core.pipelineStage(goal("z", { goalType: "active", status: "active", archivedAt: 3 }), opts), "backlog");
+  assert.equal(core.pipelineStage(null), null);
+});
+
+test("activationBlocker: only one active goal, and it must be completed first", () => {
+  const opts = { today: TODAY };
+  const ready = goal("r", { goalType: "future", status: "future", goalPlan: readyPlan() });
+  const active = goal("a", { title: "Ship APEX checkout", goalType: "active", status: "active" });
+  assert.equal(core.activationBlocker([ready], "r", opts), "");
+  const blocked = core.activationBlocker([ready, active], "r", opts);
+  assert.match(blocked, /Complete "Ship APEX checkout" first/);
+  assert.match(blocked, /until it's completed/);
+  // Completing the active goal is what frees the slot.
+  assert.equal(core.activationBlocker([ready, Object.assign({}, active, { achievedAt: 1 })], "r", opts), "");
+  // A legacy missed record never holds the focus.
+  assert.equal(core.activationBlocker([ready, Object.assign({}, active, { outcome: "missed" })], "r", opts), "");
+});
+
+test("activationBlocker refuses unplanned goals except through the switch-over", () => {
+  const opts = { today: TODAY };
+  const draft = goal("d", { goalType: "future", status: "future", goalPlan: { definition: "Earn $500" } });
+  assert.match(core.activationBlocker([draft], "d", opts), /Clarity Gate first: \d+ items left/);
+  assert.equal(core.activationBlocker([draft], "d", Object.assign({ allowUnplanned: true }, opts)), "");
+  assert.match(core.activationBlocker([draft], "missing", opts), /no longer exists/);
+  assert.match(core.activationBlocker([goal("dd", { goalType: "daily" })], "dd", opts), /alongside/);
+  assert.match(core.activationBlocker([goal("a", { goalType: "active", status: "active" })], "a", opts), /already active/);
+});
+
+test("switch-over is needed only when legacy data holds several active goals", () => {
+  const a = goal("a", { goalType: "active", status: "active" });
+  const b = goal("b", { goalType: "active", status: "active" });
+  assert.equal(core.focusResolutionNeeded([a]), false);
+  assert.equal(core.focusResolutionNeeded([a, b]), true);
+  assert.equal(core.focusResolutionNeeded([a, Object.assign({}, b, { achievedAt: 2 })]), false);
+});
+
+test("definingBlocker caps goals in definition at 3", () => {
+  const d = (id) => goal(id, { goalType: "future", status: "future", goalPlan: { definition: "x" } });
+  assert.equal(core.definingBlocker([d("1"), d("2")], { today: TODAY }), "");
+  assert.match(core.definingBlocker([d("1"), d("2"), d("3")], { today: TODAY }), /already defining 3/);
+});
+
+test("replanDeadline needs a post-mortem and a valid coin-flip date, and counts the extension", () => {
+  const plan = readyPlan();
+  const f = core.calculateDeadlineForecast(plan, TODAY);
+  const noReason = core.replanDeadline(plan, { inputMode: "date", date: f.dates.p50, rationale: "r", assumptions: "a" }, TODAY);
+  assert.equal(noReason.ok, false);
+  assert.match(noReason.errors[0], /why the last estimate was off/);
+  const padded = core.replanDeadline(plan, { inputMode: "date", date: f.dates.p90, rationale: "r", assumptions: "a", postMortem: "Underestimated setup" }, TODAY);
+  assert.equal(padded.ok, false);
+  const later = core.addDays(TODAY, 30);
+  const f2 = core.calculateDeadlineForecast(plan, later);
+  const ok = core.replanDeadline(plan, { inputMode: "date", date: f2.dates.p50, rationale: "r", assumptions: "a", postMortem: "Setup took twice as long" }, later);
+  assert.equal(ok.ok, true);
+  assert.equal(ok.extensions, 1);
+  assert.equal(ok.plan.deadlineHistory.length, 1);
+  assert.equal(ok.plan.deadlineHistory[0].date, plan.deadlineDecision.date);
+  assert.equal(ok.plan.deadlineDecision.date, f2.dates.p50);
+  assert.equal(core.normalizeGoalPlan(plan).extensions, 0, "the input plan is not mutated");
+  const again = core.replanDeadline(ok.plan, { inputMode: "date", date: f2.dates.p50, rationale: "r", assumptions: "a", postMortem: "x" }, later);
+  assert.equal(again.extensions, 2);
+});
+
+test("re-planning counts only the campaigns that are left", () => {
+  const plan = readyPlan({ campaigns: [campaign(1, null, { done: true }), campaign(2), campaign(3)] });
+  const full = core.calculateDeadlineForecast(plan, TODAY);
+  const left = core.calculateDeadlineForecast(plan, TODAY, { remainingOnly: true });
+  assert.ok(Math.abs(left.hours.mean - 22) < 1e-9, "one finished campaign of 11h drops out");
+  assert.ok(left.dates.p50 < full.dates.p50);
+  assert.equal(left.campaigns.length, 2);
+  const allDone = readyPlan({ campaigns: [campaign(1, null, { done: true })] });
+  assert.match(core.calculateDeadlineForecast(allDone, TODAY, { remainingOnly: true }).error, /Complete the goal/);
+  const ok = core.replanDeadline(plan, { inputMode: "date", date: left.dates.p50, rationale: "r", assumptions: "a", postMortem: "p" }, TODAY);
+  assert.equal(ok.ok, true, "the remaining-work coin-flip date is accepted");
+});

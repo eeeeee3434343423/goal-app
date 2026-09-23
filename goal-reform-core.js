@@ -129,7 +129,9 @@
       }),
       growth: growthOut,
       growthNote: str(value.growthNote),
-      deadlineDecision: isObj(value.deadlineDecision) ? normDecision(value.deadlineDecision) : null
+      deadlineDecision: isObj(value.deadlineDecision) ? normDecision(value.deadlineDecision) : null,
+      extensions: Math.max(0, Math.round(num(value.extensions) || 0)),
+      deadlineHistory: arr(value.deadlineHistory).filter(isObj)
     });
   }
 
@@ -191,14 +193,24 @@
     var hpw = plan.capacity.hoursPerWeek;
     if (hpw === null || hpw > MAX_HOURS_PER_WEEK) return { ok: false, error: "Enter how many focused hours per week you will commit (1 to 112)." };
     if (!plan.campaigns.length) return { ok: false, error: "Add campaigns with focused-hour estimates before setting a deadline." };
-    for (var i = 0; i < plan.campaigns.length; i++) {
-      var err = estimateError(plan.campaigns[i]);
+    var campaigns = plan.campaigns;
+    // Re-planning counts only the work that's left: a campaign whose missions are all ticked is done.
+    if (opts.remainingOnly) {
+      campaigns = campaigns.filter(function (c) {
+        var ms = [];
+        c.operations.forEach(function (o) { ms = ms.concat(o.missions); });
+        return !(ms.length && ms.every(function (m) { return m.done; }));
+      });
+      if (!campaigns.length) return { ok: false, error: "Every campaign is done. Complete the goal instead of re-planning it." };
+    }
+    for (var i = 0; i < campaigns.length; i++) {
+      var err = estimateError(campaigns[i]);
       if (err) return { ok: false, error: err };
     }
     var cal = positive(opts.calibration) || 1;
     var rate = hpw / 7;
     var mean = 0, variance = 0, cumulative = [];
-    plan.campaigns.forEach(function (c) {
+    campaigns.forEach(function (c) {
       var e = c.estimate;
       mean += (e.best + 4 * e.likely + e.worst) / 6 * cal;
       var sd = (e.worst - e.best) / 6 * cal;
@@ -425,7 +437,107 @@
     return { factor: Math.round(Math.min(3, Math.max(0.5, median)) * 1000) / 1000, samples: ratios.length };
   }
 
+  // ------------------------------------------------------------ pipeline + focus lock
+
+  var DEFINING_MAX = 3;
+
+  function goalTitle(g) { return has(g && g.title) ? g.title : "your active goal"; }
+
+  /*
+   * Where a goal record sits in the reform pipeline, derived from fields the
+   * app already stores plus goalPlan. Nothing new is persisted for the stage.
+   * Daily and standalone Small goals live outside the pipeline; legacy
+   * "missed" records are closed history and never hold the focus.
+   */
+  function pipelineStage(goal, opts) {
+    if (!isObj(goal)) return null;
+    opts = opts || {};
+    if (goal.goalType === "daily") return "daily";
+    if (goal.recordKind === "idea") return num(goal.ideaDeletedAt) > 0 ? "deleted" : "backlog";
+    if (num(goal.achievedAt) > 0 || goal.outcome === "completed") return "done";
+    if (goal.outcome === "missed") return "closed";
+    if (goal.goalType === "small") return "small";
+    if (num(goal.archivedAt) > 0) return "backlog";
+    if (goal.goalType === "active" && (goal.status === "active" || !goal.status)) return "active";
+    if (isObj(goal.goalPlan)) return goalPlanReadiness(goal.goalPlan, opts).ready ? "ready" : "defining";
+    return "backlog";
+  }
+
+  function goalsInStage(goals, stage, opts) {
+    return arr(goals).filter(function (g) { return pipelineStage(g, opts) === stage; });
+  }
+
+  // Legacy data can hold several active goals; the switch-over screen must resolve them.
+  function focusResolutionNeeded(goals) { return goalsInStage(goals, "active").length > 1; }
+
+  function definingBlocker(goals, opts) {
+    return goalsInStage(goals, "defining", opts).length >= DEFINING_MAX
+      ? "You're already defining " + DEFINING_MAX + " goals. Finish or park one first."
+      : "";
+  }
+
+  /*
+   * The one-active-goal rule (Joel, 2026-09-22): the chosen goal stays active
+   * until it is COMPLETED. No shelving, no swapping. Returns "" when the goal
+   * may be activated, otherwise the plain-language reason it may not.
+   */
+  function activationBlocker(goals, id, opts) {
+    opts = opts || {};
+    var list = arr(goals);
+    var target = list.filter(function (g) { return isObj(g) && g.id === id; })[0];
+    if (!target) return "That goal no longer exists.";
+    var stage = pipelineStage(target, opts);
+    if (stage === "active") return "This goal is already active.";
+    if (stage === "done") return "This goal is already completed.";
+    if (stage === "daily" || stage === "small") return "Daily and small goals run alongside your active goal; they aren't activated.";
+    if (stage === "deleted" || stage === "closed") return "This goal is closed and can't be activated.";
+    var others = list.filter(function (g) { return isObj(g) && g.id !== id && pipelineStage(g, opts) === "active"; });
+    if (others.length) {
+      return "Complete \"" + goalTitle(others[0]) + "\" first. Only one goal can be active, and it stays active until it's completed.";
+    }
+    if (!opts.allowUnplanned) {
+      var r = goalPlanReadiness(target.goalPlan, opts);
+      if (!r.ready) return "Finish the Clarity Gate first: " + r.missing.length + " item" + (r.missing.length === 1 ? "" : "s") + " left.";
+    }
+    return "";
+  }
+
+  /*
+   * A missed deadline never frees the focus. The only way forward is a new
+   * coin-flip deadline plus a written post-mortem; every re-plan is counted.
+   */
+  function replanDeadline(planInput, newDecision, today, opts) {
+    var plan = normalizeGoalPlan(planInput) || normalizeGoalPlan({});
+    opts = opts || {};
+    var errors = [];
+    if (!isObj(newDecision) || !has(newDecision.postMortem)) {
+      errors.push("Write why the last estimate was off before setting a new deadline.");
+    }
+    var forecast = calculateDeadlineForecast(plan, today, { calibration: opts.calibration, remainingOnly: true });
+    errors = errors.concat(validateDeadlineDecision(newDecision, forecast, today));
+    if (errors.length) return { ok: false, errors: errors };
+    var old = plan.deadlineDecision;
+    var history = plan.deadlineHistory.concat([{
+      date: old ? resolveDeadlineDate(old, today) || old.date : "",
+      replacedOn: today,
+      postMortem: newDecision.postMortem
+    }]);
+    var next = Object.assign({}, plan, {
+      deadlineDecision: normDecision(newDecision),
+      extensions: plan.extensions + 1,
+      deadlineHistory: history
+    });
+    return { ok: true, plan: next, extensions: next.extensions };
+  }
+
   return {
+    DEFINING_MAX: DEFINING_MAX,
+    pipelineStage: pipelineStage,
+    goalsInStage: goalsInStage,
+    focusResolutionNeeded: focusResolutionNeeded,
+    definingBlocker: definingBlocker,
+    activationBlocker: activationBlocker,
+    replanDeadline: replanDeadline,
     CAMPAIGNS_MIN: CAMPAIGNS_MIN,
     CAMPAIGNS_MAX: CAMPAIGNS_MAX,
     RESEARCH_MIN: RESEARCH_MIN,

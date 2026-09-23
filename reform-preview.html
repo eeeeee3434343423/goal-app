@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Goal Reform Preview</title>
+<!--
+  Standalone preview of the Goal App Reform screens (goal-reform-ui.js).
+  Uses its OWN localStorage key with sample data. It never reads or writes
+  the real app's goals ("achieve.goals.v1") and never talks to the cloud.
+-->
+<style>
+  :root{--text:#F5F7FA;--text2:#93A6B8;--canvas:#0A1420;--soft:#03070E;--soft2:#0E1E2E;--border:#1E3548;
+    --blue:#4DA3FF;--blueBg:#102A43;--green:#57D38C;--greenBg:#102C20;--red:#FF5A5F;--redBg:#35191D;--gold:#FF9F55;--goldBg:#36230E;--ink:#D9E8F5;--grid:rgba(77,163,255,.075);--accent:#4DA3FF;--accent2:#FF9F55;}
+  :root[data-theme="blue-white"]{--gold:#FFFFFF;--goldBg:#172A3C;--grid:rgba(255,255,255,.07);--accent:#4DA3FF;--accent2:#FFFFFF}
+  :root[data-theme="orange-red"]{--blue:#FF9F55;--blueBg:#3B2412;--gold:#FF9F55;--goldBg:#3B2412;--red:#FF5A5F;--redBg:#421917;--grid:rgba(255,90,95,.07);--accent:#FF9F55;--accent2:#FF5A5F}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Consolas,'Cascadia Mono','Segoe UI',monospace;background-color:var(--soft);background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px),radial-gradient(circle at 50% 0,var(--blueBg),var(--soft) 58%);background-size:32px 32px,32px 32px,100% 100%;background-attachment:fixed;color:var(--text);font-size:15px;line-height:1.5}
+  .wrap{max-width:940px;margin:0 auto;padding:20px 16px 60px}
+  h1{font-size:22px;margin:0;text-transform:uppercase;letter-spacing:.14em;color:var(--accent)}
+  button{font:inherit;border:1px solid var(--border);background:var(--canvas);color:var(--text);border-radius:3px;padding:8px 14px;cursor:pointer;font-weight:700;font-size:13px;letter-spacing:.03em}
+  button:hover{background:var(--soft2);color:var(--text)}
+  button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--accent2);outline-offset:2px}
+  button:disabled{color:var(--text2);opacity:.55;cursor:not-allowed}
+  .primary{background:var(--blue);border-color:var(--blue);color:var(--soft)}
+  .primary:hover{background:var(--blueBg);color:var(--text)}
+  .devbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;border:1px dashed var(--border);padding:10px;margin:12px 0 20px;font-size:12px;color:var(--text2)}
+  .devbar input,.devbar select{background:var(--soft);color:var(--text);border:1px solid var(--border);padding:5px;font:inherit}
+  .devbar button{padding:5px 10px;font-size:12px}
+  .devbar b{color:var(--gold);letter-spacing:.12em}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Achieve · Reform preview</h1>
+  <div class="devbar" aria-label="Preview controls">
+    <b>PREVIEW</b>
+    <label>Pretend today is <input type="date" id="devToday"></label>
+    <button type="button" onclick="devLog(1)">+1 h logged</button>
+    <button type="button" onclick="devSeedLegacy()">Load sample old goals</button>
+    <button type="button" onclick="devReset()">Reset preview data</button>
+    <label>Theme <select id="devTheme" onchange="devTheme(this.value)">
+      <option value="">Blue / orange</option><option value="blue-white">Blue / white</option><option value="orange-red">Orange / red</option>
+    </select></label>
+    <span id="devNote"></span>
+  </div>
+  <main id="reformRoot"></main>
+</div>
+<script src="./goal-reform-core.js"></script>
+<script src="./goal-reform-ui.js"></script>
+<script>
+(function () {
+  "use strict";
+  var KEY = "grf.preview.goals.v1", TODAY_KEY = "grf.preview.today", LOG_KEY = "grf.preview.logged";
+  function read(k, fallback) { try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : fallback; } catch (e) { return fallback; } }
+  function write(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* preview only */ } }
+  var goals = read(KEY, []);
+  var logged = read(LOG_KEY, {});
+  var realToday = new Date().toISOString().slice(0, 10);
+  var todayInput = document.getElementById("devToday");
+  todayInput.value = read(TODAY_KEY, realToday);
+  todayInput.addEventListener("change", function () { write(TODAY_KEY, todayInput.value || realToday); GoalReformUI.render(); });
+  function today() { return todayInput.value || realToday; }
+  function persist() { write(KEY, goals); write(LOG_KEY, logged); }
+
+  var host = {
+    mountEl: document.getElementById("reformRoot"),
+    getGoals: function () { return goals; },
+    saveGoal: function (g) {
+      var i = goals.findIndex(function (x) { return x.id === g.id; });
+      if (i >= 0) goals[i] = g; else goals.push(g);
+      persist();
+    },
+    createGoal: function (title) {
+      var g = { id: "p-" + Date.now().toString(36), title: title, goalType: "future", status: "future", createdAt: Date.now() };
+      goals.push(g); persist(); return g;
+    },
+    // Local lock, not yet synced: the same rule the cloud focus record enforces.
+    activate: function (id, opts) {
+      var blocker = GoalReformCore.activationBlocker(goals, id, Object.assign({ today: today() }, opts || {}));
+      if (blocker) return { ok: false, message: blocker };
+      var g = goals.find(function (x) { return x.id === id; });
+      g.goalType = "active"; g.status = "active"; g.achievedAt = null;
+      persist();
+      return { ok: true };
+    },
+    complete: function (id) {
+      var g = goals.find(function (x) { return x.id === id; });
+      g.achievedAt = Date.now(); g.outcome = "completed";
+      persist();
+      return true;
+    },
+    loggedHours: function (id) { return logged[id] || 0; },
+    calibration: function () {
+      return GoalReformCore.calibrationFactor(goals.filter(function (g) { return g.goalPlan && g.goalPlan.actualHours; }).map(function (g) {
+        var f = GoalReformCore.calculateDeadlineForecast(g.goalPlan, g.goalPlan.activatedOn || today());
+        return { estimatedHours: f.ok ? f.hours.mean : 0, actualHours: g.goalPlan.actualHours };
+      })).factor;
+    },
+    today: today,
+    copyText: function (t) { if (navigator.clipboard) navigator.clipboard.writeText(t).catch(function () {}); },
+    openDaily: function () { document.getElementById("devNote").textContent = "The Daily tab stays as it is in the real app."; }
+  };
+
+  window.devLog = function (h) {
+    var active = GoalReformCore.goalsInStage(goals, "active", { today: today() })[0];
+    if (!active) { document.getElementById("devNote").textContent = "No active goal to log time on."; return; }
+    logged[active.id] = (logged[active.id] || 0) + h;
+    persist(); GoalReformUI.render();
+  };
+  window.devSeedLegacy = function () {
+    goals = goals.concat([
+      { id: "legacy-a", title: "Launch APEX Learning paid tier", goalType: "active", status: "active", why: "Prove people will pay for it", deadline: "2026-11-30" },
+      { id: "legacy-b", title: "Run a sub-25 5k", goalType: "active", status: "active", why: "Get fit again" },
+      { id: "legacy-c", title: "Read 12 books", goalType: "future", status: "needsPlanning", description: "One per month" },
+      { id: "legacy-d", title: "Morning routine", goalType: "daily" }
+    ]);
+    persist(); GoalReformUI.refresh();
+  };
+  window.devReset = function () {
+    goals = []; logged = {}; persist(); write(TODAY_KEY, realToday); todayInput.value = realToday; GoalReformUI.mount(host);
+  };
+  window.devTheme = function (t) {
+    if (t) document.documentElement.setAttribute("data-theme", t); else document.documentElement.removeAttribute("data-theme");
+  };
+  GoalReformUI.mount(host);
+})();
+</script>
+</body>
+</html>
