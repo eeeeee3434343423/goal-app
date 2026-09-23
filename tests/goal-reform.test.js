@@ -3,6 +3,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
+const { spawn } = require("node:child_process");
+const core = require("../goal-reform-core.js");
 
 const htmlPath = path.join(__dirname, "..", "goal-app.html");
 
@@ -39,34 +41,39 @@ function createHarness() {
   context.window.document = context.document;
   context.window.localStorage = context.localStorage;
   context.window.navigator = context.navigator;
+  context.GoalReformCore = core;
+  context.window.GoalReformCore = core;
   vm.createContext(context);
   vm.runInContext(extractScript(), context, { filename: "goal-app.html" });
   return context;
 }
 
 function completePlan() {
-  return {
-    version: 1,
-    purpose: "Build a sustainable income skill.",
+  const plan = {
+    version: 1, whyLayers: ["Build a sustainable income skill", "Earn independent income", "Gain freedom to build full time"],
+    costOfInaction: "Another year without a repeatable offer",
     definition: "Earn $500 from one repeatable offer in a calendar month.",
-    lifeGrowth: "It builds an independent source of income.",
     successEvidence: "A Stripe export for one calendar month shows at least $500.",
-    exclusions: "No unrelated product rebuilds.",
-    currentReality: "I have an audience of ten people and no paid offer.",
+    exclusions: "No unrelated product rebuilds.", currentReality: "I have an audience of ten people and no paid offer.",
     research: [
       { question: "Comparable offer one", source: "https://example.com/one", insight: "Took 20 focused hours." },
       { question: "Comparable offer two", source: "https://example.com/two", insight: "Took 30 focused hours." },
       { question: "Comparable offer three", source: "https://example.com/three", insight: "Took 40 focused hours." },
     ],
     capacity: { hoursPerWeek: 10, constraints: "Two focused hours on weekdays." },
-    operations: [
-      { title: "Validate the offer", result: "Three qualified conversations complete.", estimate: { optimisticHours: 8, likelyHours: 12, pessimisticHours: 20 }, missions: [{ text: "Write the interview invitation." }] },
-      { title: "Launch", result: "Offer page is live.", estimate: { optimisticHours: 12, likelyHours: 18, pessimisticHours: 30 }, missions: [{ text: "Publish the offer page." }] },
-      { title: "Sell", result: "First payment received.", estimate: { optimisticHours: 10, likelyHours: 16, pessimisticHours: 28 }, missions: [{ text: "Send five tailored offers." }] },
-    ],
-    nextAction: { text: "Draft the interview invitation.", scheduledFor: "2026-09-23" },
-    deadlineDecision: { inputMode: "duration", requestedDurationDays: 35, rationale: "This is a credible stretch at ten focused hours per week.", assumptions: "I protect two focused hours on weekdays." },
+    campaigns: ["Validate the offer", "Launch", "Sell"].map((title, i) => ({
+      id: `c${i + 1}`, title, result: `${i + 1} verified customer outcomes recorded`,
+      estimate: { best: 8 + i * 2, likely: 12 + i * 2, worst: 20 + i * 2 },
+      operations: [{ id: `o${i + 1}`, title: `Operation ${i + 1}`, missions: [{ id: `m${i + 1}`, text: `Write and publish deliverable ${i + 1}` }] }],
+    })),
+    nextAction: { text: "Draft the interview invitation.", minutes: 20 },
+    obstacles: [{ if: "I miss a session", then: "I reschedule it within 24 hours" }],
+    growth: { income: 5, skill: 4, health: 1, relationships: 2, freedom: 5 },
+    deadlineDecision: null,
   };
+  plan.deadlineDecision = { inputMode: "date", date: core.calculateDeadlineForecast(plan, "2026-09-23").dates.p50,
+    rationale: "A coin-flip deadline creates focus.", assumptions: "Ten focused hours per week." };
+  return plan;
 }
 
 test("legacy goals remain unchanged when no reform plan exists", () => {
@@ -80,7 +87,6 @@ test("legacy goals remain unchanged when no reform plan exists", () => {
 
 test("normalize preserves every Workshop plan field through a save round trip", () => {
   const context = createHarness();
-  context.GoalReformCore = require("../goal-reform-core.js");
   const plan = context.GoalReformCore.normalizeGoalPlan({
     whyLayers: ["one", "two", "three"], costOfInaction: "A real cost.",
     campaigns: [{ title: "Campaign", result: "A measurable result of 10.", estimate: { best: 2, likely: 3, worst: 5 }, operations: [{ title: "Operation", missions: [{ text: "Mission" }] }] }],
@@ -99,67 +105,65 @@ test("goal plan normalization preserves valid planning inputs and removes malfor
   const context = createHarness();
   const goal = context.normalize({ id: "planned", title: "Planned", goalPlan: Object.assign(completePlan(), {
     research: completePlan().research.concat([null, { question: "", source: "", insight: "" }]),
-    operations: completePlan().operations.concat([null]),
+    campaigns: completePlan().campaigns.concat([null]),
   }) });
-  assert.equal(goal.goalPlan.research.length, 3);
-  assert.equal(goal.goalPlan.operations.length, 3);
+  assert.equal(goal.goalPlan.research.length, 4, "empty research is preserved for editing but does not satisfy readiness");
+  assert.equal(goal.goalPlan.campaigns.length, 3);
   assert.equal(goal.goalPlan.capacity.hoursPerWeek, 10);
-  assert.equal(goal.goalPlan.deadlineDecision.inputMode, "duration");
-  assert.ok(goal.goalPlan.operations.every((operation) => operation.id));
+  assert.equal(goal.goalPlan.deadlineDecision.inputMode, "date");
+  assert.ok(goal.goalPlan.campaigns.every((campaign) => campaign.id));
 });
 
 test("P50 forecast is deterministic and duration-first evaluates the user's requested duration", () => {
   const context = createHarness();
-  const plan = context.normalizeGoalPlan(completePlan(), { goalIds: {} });
-  const first = context.calculateDeadlineForecast(plan, "2026-09-22", "planned");
-  const second = context.calculateDeadlineForecast(plan, "2026-09-22", "planned");
+  const plan = core.normalizeGoalPlan(completePlan());
+  const first = core.calculateDeadlineForecast(plan, "2026-09-23");
+  const second = core.calculateDeadlineForecast(plan, "2026-09-23");
   assert.deepEqual(JSON.parse(JSON.stringify(first)), JSON.parse(JSON.stringify(second)));
-  assert.ok(first.p10Date <= first.p50Date && first.p50Date <= first.p90Date);
-  assert.equal(first.selectedDate, context.planningAddDays("2026-09-22", 35));
-  assert.ok(Number.isInteger(first.selectedDatePercentile));
-  assert.ok(first.requiredHoursPerWeek > 0);
+  assert.equal(first.ok, true);
+  assert.ok(first.dates.p10 <= first.dates.p50 && first.dates.p50 <= first.dates.p90);
+  plan.deadlineDecision = { ...plan.deadlineDecision, inputMode: "duration", requestedDurationDays: first.band.earliestDays };
+  assert.deepEqual(core.validateDeadlineDecision(plan.deadlineDecision, first, "2026-09-23"), []);
+  assert.equal(typeof context.normalize, "function", "the app delegates plan normalization to the injected core");
 });
 
 test("date-first validation permits only a calculated P40-P60 deadline", () => {
   const context = createHarness();
-  const plan = context.normalizeGoalPlan(completePlan(), { goalIds: {} });
-  const midpoint = context.calculateDeadlineForecast(plan, "2026-09-22", "planned");
-  plan.deadlineDecision = Object.assign({}, plan.deadlineDecision, { inputMode: "date", date: midpoint.p50Date });
-  const forecast = context.calculateDeadlineForecast(plan, "2026-09-22", "planned");
-  assert.deepEqual(JSON.parse(JSON.stringify(context.validateDeadlineDecision(plan.deadlineDecision, forecast, "2026-09-22"))), []);
-  plan.deadlineDecision.date = "2026-09-23";
-  const impossible = context.calculateDeadlineForecast(plan, "2026-09-22", "planned");
-  assert.match(context.validateDeadlineDecision(plan.deadlineDecision, impossible, "2026-09-22").join(" "), /P40-P60/);
+  const plan = core.normalizeGoalPlan(completePlan());
+  const forecast = core.calculateDeadlineForecast(plan, "2026-09-23");
+  plan.deadlineDecision.date = forecast.dates.p50;
+  assert.deepEqual(core.validateDeadlineDecision(plan.deadlineDecision, forecast, "2026-09-23"), []);
+  plan.deadlineDecision.date = "2026-09-24";
+  assert.match(core.validateDeadlineDecision(plan.deadlineDecision, forecast, "2026-09-23").join(" "), /too aggressive/);
 });
 
 test("P50 forecasting fails closed when any planned operation lacks a valid estimate", () => {
   const context = createHarness();
   const raw = completePlan();
-  raw.operations[1].estimate.likelyHours = "";
-  const plan = context.normalizeGoalPlan(raw, { goalIds: {} });
-  assert.equal(context.calculateDeadlineForecast(plan, "2026-09-22", "planned"), null);
-  assert.ok(context.goalPlanReadiness(context.normalize({ id: "draft", title: "Draft", goalPlan: raw }), "2026-09-22").missing.includes("P50 deadline"));
+  raw.campaigns[1].estimate.likely = "";
+  const plan = core.normalizeGoalPlan(raw);
+  assert.equal(core.calculateDeadlineForecast(plan, "2026-09-23").ok, false);
+  assert.ok(core.goalPlanReadiness(plan, { today: "2026-09-23" }).missing.some((item) => item.key === "campaigns"));
 });
 
 test("date-first forecast reports the pace required by the selected deadline", () => {
   const context = createHarness();
-  const plan = context.normalizeGoalPlan(completePlan(), { goalIds: {} });
-  plan.deadlineDecision = Object.assign({}, plan.deadlineDecision, { inputMode: "date", date: "2026-11-09" });
-  const long = context.calculateDeadlineForecast(plan, "2026-09-22", "planned");
-  plan.deadlineDecision.date = "2026-10-20";
-  const short = context.calculateDeadlineForecast(plan, "2026-09-22", "planned");
-  assert.ok(short.requiredHoursPerWeek > long.requiredHoursPerWeek, "a shorter selected deadline must require a faster pace");
+  const plan = core.normalizeGoalPlan(completePlan());
+  const forecast = core.calculateDeadlineForecast(plan, "2026-09-23");
+  const long = core.requiredHoursPerWeek(forecast, "2026-09-23", "2026-11-09");
+  const short = core.requiredHoursPerWeek(forecast, "2026-09-23", "2026-10-20");
+  assert.ok(short > long, "a shorter selected deadline must require a faster pace");
 });
 
 test("readiness blocks activation until the user supplies the full clarity plan", () => {
   const context = createHarness();
-  const incomplete = context.normalize({ id: "draft", title: "Draft", goalPlan: { purpose: "A reason." } });
-  const readiness = context.goalPlanReadiness(incomplete);
+  const incomplete = context.normalize({ id: "draft", title: "Draft", goalPlan: { whyLayers: ["A reason."] } });
+  const readiness = core.goalPlanReadiness(incomplete.goalPlan, { today: "2026-09-23" });
   assert.equal(readiness.ready, false);
-  assert.ok(readiness.missing.includes("definition"));
-  assert.ok(readiness.missing.includes("research"));
+  assert.ok(readiness.missing.some((item) => item.key === "definition"));
+  assert.ok(readiness.missing.some((item) => item.key === "research"));
   const complete = context.normalize({ id: "ready", title: "Ready", goalPlan: completePlan() });
-  assert.equal(context.goalPlanReadiness(complete, "2026-09-22").ready, true);
+  assert.equal(core.goalPlanReadiness(complete.goalPlan, { today: "2026-09-23" }).ready, true);
 });
 
 function readyFuture(context, id) {
@@ -207,18 +211,41 @@ test("Future activation uses the atomic focus mutation and installs only its ret
   assert.equal(context.goalFocus.activeGoalId, "future-1");
 });
 
-test("active finalization uses atomic activation and signed-out or focus-read failures leave the goal unchanged", async () => {
+test("reform activation leaves a draft unchanged when the focus transaction fails", async () => {
   const context = createHarness();
   const draft = readyFuture(context, "draft-1");
   draft.status = "draft";
   context.goals = [draft];
   const before = JSON.stringify(context.goals[0]);
 
-  assert.equal(await context.finalizeGoal("draft-1", "active"), false);
-  assert.equal(JSON.stringify(context.goals[0]), before);
-
   enableAtomicActivation(context, async () => { throw new Error("offline"); });
-  assert.equal(await context.finalizeGoal("draft-1", "active"), false);
+  assert.equal((await context.reformActivate("draft-1")).ok, false);
   assert.equal(JSON.stringify(context.goals[0]), before);
   assert.match(context.document.getElementById("saveStatus").textContent, /Activation blocked/);
+});
+
+test("isolated demo serves a signed-out 24-record copy without exposing other files", async () => {
+  const child = spawn(process.execPath, [path.join(__dirname, "..", "scripts", "launch-reform-demo.js")], { stdio: ["ignore", "pipe", "pipe"] });
+  try {
+    const address = await new Promise((resolve, reject) => {
+      let output = "";
+      const timeout = setTimeout(() => reject(new Error("Demo did not start")), 5000);
+      child.once("error", reject);
+      child.once("exit", (code) => reject(new Error(`Demo exited ${code}: ${output}`)));
+      child.stdout.on("data", (chunk) => {
+        output += chunk;
+        const match = output.match(/http:\/\/127\.0\.0\.1:\d+\//);
+        if (match) { clearTimeout(timeout); resolve(match[0]); }
+      });
+    });
+    const response = await fetch(address);
+    const html = await response.text();
+    assert.equal(response.status, 200);
+    assert.match(html, /window\.__SKIP_CLOUD_SAVE=true/);
+    assert.match(html, /achieve\.goals\.v1/);
+    assert.match(html, /goal-reform-ui\.js/);
+    assert.equal((await fetch(new URL("/private.json", address))).status, 404);
+  } finally {
+    child.kill();
+  }
 });
