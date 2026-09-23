@@ -416,3 +416,38 @@ test("focused time is logged from the board without pop-ups and drives the pace"
   assert.equal(store.logged[g.id], 1.5);
   assert.match(html(host), /Logged 1\.5 h/);
 });
+
+test("an overdue old goal without a plan is sent to plan it, then its new deadline takes over", () => {
+  const { host, store } = makeHost([{ id: "old", title: "Finish Algebra 2", goalType: "active", status: "active", why: "Get to AP Physics", deadline: "2026-08-20", reformFocusSince: "2026-09-23" }], "2026-09-23");
+  ui.mount(host);
+  let out = html(host);
+  assert.match(out, /OVERDUE/);
+  assert.match(out, /needs a plan before it can get a new coin-flip deadline/);
+  assert.doesNotMatch(out, /startReplan/, "no re-plan that can't succeed");
+  ui.startDefining("old");
+  // user fills the plan (reusing the helper's field-by-field entry on the active goal)
+  const st = ui._state();
+  ["whyLayers.1", "whyLayers.2"].forEach((p) => ui.set(p, "A real reason with depth"));
+  ui.set("costOfInaction", "Another year behind"); ui.set("definition", "Pass the Algebra 2 final with 80 percent");
+  ui.set("successEvidence", "Final grade report of 80 percent"); ui.set("exclusions", "No other courses");
+  for (let i = 0; i < 3; i++) { ui.addFinding("Q"); ui.set(`research.${i}.source`, "teacher"); ui.set(`research.${i}.insight`, "3 hours a week works"); }
+  for (let i = 0; i < 3; i++) { ui.addCampaign(); ui.set(`campaigns.${i}.title`, "Unit " + (i + 1)); ui.set(`campaigns.${i}.result`, "Score 80 percent on unit " + (i + 1));
+    ["best", "likely", "worst"].forEach((k, j) => ui.set(`campaigns.${i}.estimate.${k}`, String([4, 6, 10][j]), "num"));
+    ui.set(`campaigns.${i}.operations.0.title`, "Practice"); ui.set(`campaigns.${i}.operations.0.missions.0.text`, "20 problems"); }
+  ui.addObstacle(); ui.set("obstacles.0.if", "I skip"); ui.set("obstacles.0.then", "I do 20 minutes");
+  ui.set("nextAction.text", "Open chapter 1"); ui.set("nextAction.minutes", "10", "num"); ui.set("capacity.hoursPerWeek", "6", "num");
+  core.GROWTH_KEYS.forEach((k) => ui.pick("growth." + k, 3));
+  const f = core.calculateDeadlineForecast(core.normalizeGoalPlan(st.drafts.old), store.today);
+  ui.pick("deadlineDecision.inputMode", "date"); ui.set("deadlineDecision.date", f.dates.p50);
+  ui.set("deadlineDecision.rationale", "r"); ui.set("deadlineDecision.assumptions", "a");
+  ui.stageTo(6);
+  assert.match(html(host), /Save plan &amp; back to Mission Board/);
+  assert.equal(ui.commitActivePlan("old"), true);
+  const g = store.goals[0];
+  assert.equal(g.deadline, f.dates.p50, "the app's deadline moves to the new coin-flip date");
+  assert.ok(g.goalPlan.deadlineDecision.calculationSnapshot);
+  assert.equal(g.goalType, "active");
+  out = html(host);
+  assert.doesNotMatch(out, /OVERDUE/);
+  assert.match(out, /set at \d+% at full focus/);
+});

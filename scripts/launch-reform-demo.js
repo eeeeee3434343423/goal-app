@@ -35,7 +35,11 @@ const server = http.createServer((req, res) => {
   res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8" });
   fs.createReadStream(path.join(repo, file)).pipe(res);
 });
-server.listen(0, "127.0.0.1", () => {
+// A fixed port keeps the same browser storage between runs, so demo progress
+// survives a restart. Set REFORM_DEMO_PORT to change it.
+const port = process.env.REFORM_DEMO_PORT !== undefined ? Number(process.env.REFORM_DEMO_PORT) : 4190;
+server.on("error", (e) => { console.error(e.code === "EADDRINUSE" ? `Port ${port} is busy. Close the other demo window, or set REFORM_DEMO_PORT.` : e.message); process.exit(1); });
+server.listen(port, "127.0.0.1", () => {
   console.log(`Signed-out Goal Reform demo: http://127.0.0.1:${server.address().port}/`);
   console.log("Using an in-browser copy of 24 records. Cloud sync is disabled; source backup is read-only. Press Ctrl+C to stop.");
 });

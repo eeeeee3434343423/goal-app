@@ -225,7 +225,7 @@ test("reform activation leaves a draft unchanged when the focus transaction fail
 });
 
 test("isolated demo serves a signed-out 24-record copy without exposing other files", async () => {
-  const child = spawn(process.execPath, [path.join(__dirname, "..", "scripts", "launch-reform-demo.js")], { stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(process.execPath, [path.join(__dirname, "..", "scripts", "launch-reform-demo.js")], { stdio: ["ignore", "pipe", "pipe"], env: Object.assign({}, process.env, { REFORM_DEMO_PORT: "0" }) });
   try {
     const address = await new Promise((resolve, reject) => {
       let output = "";

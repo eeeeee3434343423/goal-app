@@ -401,7 +401,7 @@
     var isActive = core.pipelineStage(goal, opts()) === "active";
     var blocker = isActive ? "" : core.activationBlocker(withPlan(goals(), goal.id, plan), goal.id, opts());
     var primary = isActive
-      ? "<button type=\"button\" class=\"primary\" onclick=\"" + call("go", "board") + "\">Back to Mission Board</button>"
+      ? "<button type=\"button\" class=\"primary\" onclick=\"" + call("commitActivePlan", goal.id) + "\">Save plan &amp; back to Mission Board</button>"
       : blocker ? "<span class=\"grf-blocked\">" + esc(blocker) + "</span>"
         : "<button type=\"button\" class=\"primary\" onclick=\"" + call("activate", goal.id) + "\">Activate now</button>";
     return "<h4 class=\"grf-h\">Clarity Gate</h4><div class=\"grf-live\" data-live=\"gate\">" + gateList(plan) + "</div>" +
@@ -604,7 +604,13 @@
     var logged = host && host.loggedHours ? Number(host.loggedHours(goal.id)) || 0 : 0;
 
     var replan = "";
-    if (overdue) {
+    // Re-planning needs campaigns with estimates. An old goal without them is
+    // sent to the Workshop first, where it gets a plan and a coin-flip deadline.
+    var canReplan = core.calculateDeadlineForecast(plan, today(), { calibration: calibration(), remainingOnly: true }).ok;
+    if (overdue && !canReplan) {
+      replan = "<div class=\"grf-alert\"><b>The deadline passed.</b> This goal stays active until it's completed. It needs a plan before it can get a new coin-flip deadline." +
+        "<div class=\"grf-actions\"><button type=\"button\" class=\"primary\" onclick=\"" + call(legacy ? "startDefining" : "openWorkshop", goal.id) + "\">Plan it and set a new deadline</button></div></div>";
+    } else if (overdue) {
       replan = confirm && confirm.kind === "replan" ? replanPanel(goal, plan)
         : "<div class=\"grf-alert\"><b>The deadline passed.</b> This goal stays active until it's completed. Set a new coin-flip deadline to keep going." +
           "<div class=\"grf-actions\"><button type=\"button\" class=\"primary\" onclick=\"" + call("startReplan", goal.id) + "\">Re-plan the deadline</button></div></div>";
@@ -1013,6 +1019,27 @@
       state.confirm = null;
       render();
       return true;
+    },
+    // The active goal was re-planned in the Workshop (e.g. an old goal given its
+    // first plan). If the new deadline passes the gate, freeze it like an
+    // activation does and keep the app's deadline field in sync.
+    commitActivePlan: function (id) {
+      var g = findGoal(id);
+      if (!g) return false;
+      if (state.goalId === id) flush(id);
+      g = findGoal(id);
+      var plan = clone(planOf(g));
+      var errors = plan.deadlineDecision ? core.validateDeadlineDecision(plan.deadlineDecision, core.calculateDeadlineForecast(plan, today(), { calibration: calibration() }), today()) : ["no deadline"];
+      if (!errors.length) {
+        var deadline = core.resolveDeadlineDate(plan.deadlineDecision, today());
+        plan.deadlineDecision = Object.assign({}, plan.deadlineDecision, { inputMode: "date", date: deadline });
+        plan.activatedOn = today();
+        commitSnapshot(id, plan, false);
+        delete state.drafts[id];
+        host.saveGoal(Object.assign({}, g, { goalPlan: plan, deadline: deadline }));
+      }
+      actions.go("board");
+      return !errors.length;
     },
     chooseSwitch: function (id) { state.confirm = { kind: "switch", id: id }; render(); },
     confirmSwitch: function () {
