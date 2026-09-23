@@ -256,6 +256,7 @@
 <script src="./sync-v2-api.js"></script>
 <script src="./sync-v2-firestore-modern.js"></script>
 <script src="./goal-reform-core.js"></script>
+<script src="./goal-reform-ui.js"></script>
 </head>
 <body>
 <div class="wrap">
@@ -279,8 +280,10 @@
     </div>
   </header>
   <div class="banner" id="banner" style="display:none"></div>
+  <div id="missionView"></div>
   <div class="view-tabs">
-    <button id="viewToday" class="active" onclick="setView('today')" type="button">Today</button>
+    <button id="viewMission" class="active" onclick="setView('mission')" type="button">Mission</button>
+    <button id="viewToday" onclick="setView('today')" type="button">Today</button>
     <div class="menu">
       <button id="goalsMenuButton" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="goalsMenu" onclick="toggleMenu('goalsMenu')" onkeydown="handleMenuButtonKey(event,'goalsMenu')"><span id="goalsMenuLabel">Goals</span> <span class="menu-chevron" aria-hidden="true">v</span></button>
       <div id="goalsMenu" class="menu-panel" role="menu" aria-label="Goal views" hidden onkeydown="handleMenuKey(event,'goalsMenu')">
@@ -586,7 +589,7 @@ var goals = [];
 var editId = null;
 var formMode = "active";
 var formChildSmallGoals = [];
-var currentView = "today";
+var currentView = "mission";
 var smallGoalsGoalId = null;
 var selectedChildSmallGoalId = null;
 var CHILD_MANAGER_LIMIT = 40;
@@ -1723,150 +1726,6 @@ function buildGoalCopyText(g, mode){
    Goal Reform: additive planning and deterministic P50 forecasting.
    These helpers intentionally do not write clocks or change legacy fields.
    ================================================================ */
-function planningText(value){ return textField(value).trim(); }
-function planningHours(value){
-  var number = Number(value);
-  return Number.isFinite(number) && number > 0 && number <= 100000 ? Math.round(number * 100) / 100 : null;
-}
-function planningDate(value){ return /^\d{4}-\d{2}-\d{2}$/.test(textField(value)) ? textField(value) : ""; }
-function planningUtcDay(value){
-  var date = planningDate(value);
-  if (!date) return null;
-  var parts = date.split("-").map(Number);
-  var day = Date.UTC(parts[0], parts[1] - 1, parts[2]);
-  var check = new Date(day);
-  return check.getUTCFullYear() === parts[0] && check.getUTCMonth() === parts[1] - 1 && check.getUTCDate() === parts[2] ? day : null;
-}
-function planningDateFromDay(day){
-  var date = new Date(day);
-  return date.getUTCFullYear() + "-" + String(date.getUTCMonth() + 1).padStart(2, "0") + "-" + String(date.getUTCDate()).padStart(2, "0");
-}
-function planningAddDays(date, days){
-  var day = planningUtcDay(date);
-  return day == null ? "" : planningDateFromDay(day + Math.max(0, Math.ceil(days || 0)) * 86400000);
-}
-function normalizeGoalPlan(value, idState){
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  var researchIds = {}, operationIds = {}, missionIds = {};
-  var research = (Array.isArray(value.research) ? value.research : []).map(function(item, index){
-    if (!item || typeof item !== "object") return null;
-    var question = planningText(item.question), source = planningText(item.source), insight = planningText(item.insight);
-    if (!question || !source || !insight) return null;
-    return { id: safeId(item.id, "research-", researchIds, "research|" + index + "|" + question + "|" + source), question: question, source: source, insight: insight, createdAt: Number(item.createdAt) > 0 ? Number(item.createdAt) : null };
-  }).filter(Boolean);
-  var operations = (Array.isArray(value.operations) ? value.operations : []).map(function(item, index){
-    if (!item || typeof item !== "object") return null;
-    var title = planningText(item.title), result = planningText(item.result);
-    if (!title || !result) return null;
-    var estimate = item.estimate && typeof item.estimate === "object" ? item.estimate : {};
-    var optimisticHours = planningHours(estimate.optimisticHours), likelyHours = planningHours(estimate.likelyHours), pessimisticHours = planningHours(estimate.pessimisticHours);
-    var missions = (Array.isArray(item.missions) ? item.missions : []).map(function(mission, missionIndex){
-      if (!mission || typeof mission !== "object") return null;
-      var text = planningText(mission.text);
-      if (!text) return null;
-      return { id: safeId(mission.id, "mission-", missionIds, "mission|" + index + "|" + missionIndex + "|" + text), text: text, done: !!mission.done, createdAt: Number(mission.createdAt) > 0 ? Number(mission.createdAt) : null, completedAt: Number(mission.completedAt) > 0 ? Number(mission.completedAt) : null };
-    }).filter(Boolean);
-    return {
-      id: safeId(item.id, "operation-", operationIds, "operation|" + index + "|" + title), title: title, result: result,
-      estimate: { optimisticHours: optimisticHours, likelyHours: likelyHours, pessimisticHours: pessimisticHours }, missions: missions
-    };
-  }).filter(Boolean);
-  var capacity = value.capacity && typeof value.capacity === "object" ? value.capacity : {};
-  var decision = value.deadlineDecision && typeof value.deadlineDecision === "object" ? value.deadlineDecision : {};
-  var inputMode = decision.inputMode === "date" ? "date" : "duration";
-  var duration = Number(decision.requestedDurationDays);
-  return {
-    version: 1,
-    purpose: planningText(value.purpose), definition: planningText(value.definition), lifeGrowth: planningText(value.lifeGrowth),
-    successEvidence: planningText(value.successEvidence), exclusions: planningText(value.exclusions), currentReality: planningText(value.currentReality),
-    research: research, capacity: { hoursPerWeek: planningHours(capacity.hoursPerWeek), constraints: planningText(capacity.constraints) },
-    operations: operations,
-    nextAction: { text: planningText(value.nextAction && value.nextAction.text), scheduledFor: planningDate(value.nextAction && value.nextAction.scheduledFor) },
-    deadlineDecision: {
-      inputMode: inputMode, date: planningDate(decision.date), requestedDurationDays: Number.isFinite(duration) && duration > 0 && duration <= 3650 ? Math.round(duration) : null,
-      rationale: planningText(decision.rationale), assumptions: planningText(decision.assumptions),
-      calculationSnapshot: decision.calculationSnapshot && typeof decision.calculationSnapshot === "object" ? Object.assign({}, decision.calculationSnapshot) : null,
-      decidedAt: Number(decision.decidedAt) > 0 ? Number(decision.decidedAt) : null
-    }
-  };
-}
-function forecastSeed(value){
-  var text = String(value || "goal");
-  var hash = 2166136261;
-  for (var i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 16777619);
-  return function(){ hash += 0x6D2B79F5; var t = hash; t = Math.imul(t ^ t >>> 15, t | 1); t ^= t + Math.imul(t ^ t >>> 7, t | 61); return ((t ^ t >>> 14) >>> 0) / 4294967296; };
-}
-function forecastNormal(random){
-  var u = Math.max(random(), 0.0000001), v = random();
-  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
-}
-function forecastGamma(shape, random){
-  if (shape < 1) return forecastGamma(shape + 1, random) * Math.pow(Math.max(random(), 0.0000001), 1 / shape);
-  var d = shape - 1 / 3, c = 1 / Math.sqrt(9 * d);
-  while (true){
-    var x = forecastNormal(random), v = 1 + c * x;
-    if (v <= 0) continue;
-    v = v * v * v;
-    var u = random();
-    if (u < 1 - 0.0331 * x * x * x * x || Math.log(Math.max(u, 0.0000001)) < 0.5 * x * x + d * (1 - v + Math.log(v))) return d * v;
-  }
-}
-function forecastPert(estimate, random){
-  var low = estimate.optimisticHours, likely = estimate.likelyHours, high = estimate.pessimisticHours;
-  if (!(low > 0 && likely >= low && high >= likely)) return null;
-  if (low === high) return low;
-  var alpha = 1 + 4 * (likely - low) / (high - low), beta = 1 + 4 * (high - likely) / (high - low);
-  var a = forecastGamma(alpha, random), b = forecastGamma(beta, random);
-  return low + (high - low) * a / (a + b);
-}
-function calculateDeadlineForecast(plan, today, seed){
-  plan = normalizeGoalPlan(plan, { goalIds: {} });
-  var todayDay = planningUtcDay(today);
-  if (!plan || todayDay == null || !plan.capacity.hoursPerWeek) return null;
-  var estimates = plan.operations.map(function(operation){ return operation.estimate; }).filter(function(estimate){ return estimate.optimisticHours && estimate.likelyHours && estimate.pessimisticHours && estimate.optimisticHours <= estimate.likelyHours && estimate.likelyHours <= estimate.pessimisticHours; });
-  /* A missing estimate is unknown work, not zero work. Refuse a forecast
-     rather than producing a falsely comfortable P50 from a partial plan. */
-  if (!estimates.length || estimates.length !== plan.operations.length) return null;
-  var random = forecastSeed(String(seed || "goal") + "|" + JSON.stringify(estimates) + "|" + plan.capacity.hoursPerWeek);
-  var samples = [];
-  for (var i = 0; i < 1024; i++){
-    var hours = estimates.reduce(function(total, estimate){ return total + forecastPert(estimate, random); }, 0);
-    samples.push(hours * 7 / plan.capacity.hoursPerWeek);
-  }
-  samples.sort(function(a, b){ return a - b; });
-  function percentile(value){ return samples[Math.round((samples.length - 1) * value)]; }
-  var p10Days = percentile(0.1), p50Days = percentile(0.5), p90Days = percentile(0.9);
-  var decision = plan.deadlineDecision;
-  var selectedDate = decision.inputMode === "date" ? decision.date : planningAddDays(today, decision.requestedDurationDays || p50Days);
-  var selectedDay = planningUtcDay(selectedDate);
-  var selectedDays = selectedDay == null ? null : Math.max(0, Math.ceil((selectedDay - todayDay) / 86400000));
-  var percentileRank = selectedDays == null ? null : Math.round(samples.filter(function(days){ return days <= selectedDays; }).length / samples.length * 100);
-  return {
-    sampleCount: samples.length, p10Date: planningAddDays(today, p10Days), p50Date: planningAddDays(today, p50Days), p90Date: planningAddDays(today, p90Days),
-    p10Days: Math.ceil(p10Days), p50Days: Math.ceil(p50Days), p90Days: Math.ceil(p90Days),
-    selectedDate: selectedDate, selectedDatePercentile: percentileRank, requiredHoursPerWeek: Math.round(percentile(0.5) / Math.max(1, selectedDays == null ? p50Days : selectedDays) * 7 * 100) / 100
-  };
-}
-function validateDeadlineDecision(value, forecast, today){
-  var errors = [], decision = value && typeof value === "object" ? value : {};
-  if (!forecast) return ["Add valid milestone estimates and a positive weekly capacity before calculating a deadline."];
-  if (!planningText(decision.rationale)) errors.push("Explain why this P50 deadline is credible.");
-  if (!planningText(decision.assumptions)) errors.push("Write the assumptions behind this deadline.");
-  if (!forecast.selectedDate || planningUtcDay(forecast.selectedDate) == null || planningUtcDay(forecast.selectedDate) <= planningUtcDay(today)) errors.push("Choose a future deadline or duration.");
-  if (forecast.selectedDatePercentile == null || forecast.selectedDatePercentile < 40 || forecast.selectedDatePercentile > 60) errors.push("Choose a deadline in the calculated P40-P60 target zone.");
-  return errors;
-}
-function goalPlanReadiness(goal, today){
-  var plan = goal && goal.goalPlan, missing = [];
-  if (!plan){ return { ready: false, missing: ["purpose", "definition", "research", "plan", "deadline", "next action"] }; }
-  [["purpose", plan.purpose], ["definition", plan.definition], ["life growth", plan.lifeGrowth], ["success evidence", plan.successEvidence], ["current reality", plan.currentReality]].forEach(function(pair){ if (!planningText(pair[1])) missing.push(pair[0]); });
-  if ((plan.research || []).length < 3) missing.push("research");
-  if ((plan.operations || []).length < 3) missing.push("three outcome milestones");
-  if (!plan.nextAction || !planningText(plan.nextAction.text)) missing.push("next action");
-  if (!plan.capacity || !plan.capacity.hoursPerWeek) missing.push("weekly capacity");
-  if (today){ var forecast = calculateDeadlineForecast(plan, today, goal && goal.id); if (validateDeadlineDecision(plan.deadlineDecision, forecast, today).length) missing.push("P50 deadline"); }
-  return { ready: missing.length === 0, missing: missing };
-}
 function normalizeGoalType(g){
   if (g.goalType === "future" || g.type === "future" || g.future === true) return "future";
   if (g.goalType === "small" || g.type === "small" || g.small === true) return "small";
@@ -1945,7 +1804,7 @@ function normalize(g, idState){
     /* The Workshop owns the complete, additive plan shape. Never rebuild it
        here: its unknown/future fields are user-authored and must survive a
        normal save, import, reload, and cloud round trip. */
-    goalPlan: g.goalPlan ? (typeof GoalReformCore !== "undefined" ? GoalReformCore.normalizeGoalPlan(g.goalPlan) : normalizeGoalPlan(g.goalPlan)) : null,
+    goalPlan: g.goalPlan ? (typeof GoalReformCore !== "undefined" ? GoalReformCore.normalizeGoalPlan(g.goalPlan) : Object.assign({}, g.goalPlan)) : null,
     status: status,
     legacyClassification: legacyClassification,
     migratedAt: migratedAt,
@@ -2034,6 +1893,8 @@ function formalGoals(){ return goals.filter(function(g){ return !isIdeaRecord(g)
 function isArchivedGoal(g){ return !!(g && !isIdeaRecord(g) && Number(g.archivedAt) > 0); }
 function canArchiveGoal(g){
   if (!g || isIdeaRecord(g)) return false;
+  /* The active goal stays until it is completed (Joel, 2026-09-22). */
+  if (isLockedFocus(g)) return false;
   if (g.achievedAt || g.outcome === "completed" || g.outcome === "missed") return false;
   return g.goalType === "active" || g.goalType === "small" || g.goalType === "future";
 }
@@ -2446,6 +2307,8 @@ async function loadCloudGoals(){
 }
 async function saveCloudGoals(){
   if (!cloudSave.ready || !cloudSave.user || !cloudSave.initialReadDone) return;
+  /* The completion transaction writes this goal and the focus together. */
+  if (reformCompletionInFlight) return;
   try {
     if (!window.__V2_SYNC_ACTIVE) {
       var updatedAt = Number(localStorage.getItem(SYNC_UPDATED_KEY)) || Date.now();
@@ -2760,7 +2623,7 @@ function formatDate(value){
   if (isNaN(date.getTime())) return "";
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
-var VIEWS = { today: 1, active: 1, small: 1, future: 1, ideas: 1, archive: 1, notifications: 1, daily: 1, victories: 1, settings: 1 };
+var VIEWS = { mission: 1, today: 1, active: 1, small: 1, future: 1, ideas: 1, archive: 1, notifications: 1, daily: 1, victories: 1, settings: 1 };
 var MENU_IDS = ["goalsMenu", "newGoalMenu"];
 function menuButtonFor(menuId){ return document.getElementById(menuId === "goalsMenu" ? "goalsMenuButton" : "newGoalMenuButton"); }
 function setMenuOpen(menuId, open){
@@ -2838,6 +2701,12 @@ function selectGoalView(view){
 }
 function selectNewGoalType(mode){
   closeMenus();
+  if ((mode === "active" || mode === "future") && typeof GoalReformUI !== "undefined"){
+    setView("mission");
+    GoalReformUI.go("pipeline");
+    focusFormField("grf-new-title");
+    return;
+  }
   if (canEditOrExportGoals()){
     openForm(null, mode);
     focusFormField(mode === "active" ? "fTitleBig" : "fTitle");
@@ -2871,7 +2740,10 @@ function applyViewVisibility(){
   var isSmallTab = currentView === "small";
   var isFutureTab = currentView === "future";
   var isSettings = currentView === "settings";
-  var isToday = !isDaily && !isVictories && !isIdeas && !isNotify && !isArchive && !isActiveTab && !isSmallTab && !isFutureTab && !isSettings;
+  var isMission = currentView === "mission";
+  var isToday = !isMission && !isDaily && !isVictories && !isIdeas && !isNotify && !isArchive && !isActiveTab && !isSmallTab && !isFutureTab && !isSettings;
+  setDisplay("missionView", isMission);
+  setViewTab("viewMission", isMission);
   setDisplay("banner", isToday);
   /* One rendered list per goal kind, shown by Today and by its own tab. */
   setDisplay("activeList", isToday || isActiveTab);
@@ -2916,11 +2788,14 @@ function render(){
     document.getElementById("needsReflectionList").innerHTML = "";
     document.getElementById("overdueReviewList").innerHTML = "";
     document.getElementById("notifyList").innerHTML = '<div class="empty"><b>Loading your saved cloud goals.</b><br>Alerts and backup controls are locked until the account data is confirmed.</div>';
+    var missionLoading = document.getElementById("missionView");
+    if (missionLoading) missionLoading.innerHTML = '<div class="empty"><b>Loading your saved cloud goals.</b><br>Your Mission Board appears once the account data is confirmed.</div>';
     applyViewVisibility();
     return;
   }
   /* Idea records live in the same array but are NOT goals. Every formal goal
      view filters them out explicitly (Demo 2). */
+  renderMissionView();
   var formal = liveGoals();
   /* A draft is not a live goal. It must not sit in Today's active focus
      pretending to be one until it has been finalized (PLAN.md 16). */
@@ -3074,7 +2949,7 @@ function dailyCardHtml(g){
 }
 function timerControlsHtml(g){
   if (g.goalType !== "small" || g.achievedAt) return "";
-  return '<div class="small-summary"><div><b>Timer sessions</b><br><span>' + (g.timerSessions || []).length + ' sessions logged</span></div><div class="card-btns" style="position:static"><button onclick="addTimerSession(\'' + g.id + '\',30)">30 min</button><button onclick="addTimerSession(\'' + g.id + '\',60)">1 h</button><button onclick="addCustomTimerSession(\'' + g.id + '\')">Custom</button></div></div>';
+  return '<div class="small-summary"><div><b>Timer sessions</b><br><span>' + (g.timerSessions || []).length + ' sessions logged</span></div><div class="card-btns" style="position:static"><button onclick="addTimerSession(\'' + g.id + '\',30)">30 min</button><button onclick="addTimerSession(\'' + g.id + '\',60)">1 h</button><input type="number" min="1" max="720" id="customMinutes-' + g.id + '" aria-label="Custom minutes" placeholder="min" style="width:70px"><button onclick="addCustomTimerSession(\'' + g.id + '\')">Log</button></div></div>';
 }
 function checklistHtml(g, key, title, toggleFn){
   var items = g[key] || [];
@@ -3986,10 +3861,9 @@ function addTimerSession(id, minutes){
   save();
 }
 function addCustomTimerSession(id){
-  var raw = prompt("How many minutes?");
-  if (raw == null) return;
-  var minutes = Math.floor(Number(raw));
-  if (!minutes || minutes <= 0){ alert("Enter a positive number of minutes."); return; }
+  var input = document.getElementById("customMinutes-" + id);
+  var minutes = Math.floor(Number(input && input.value));
+  if (!minutes || minutes <= 0){ setSaveStatus("Enter a positive number of minutes."); return; }
   addTimerSession(id, minutes);
 }
 /* Persist FIRST. Celebration is presentation and must never be able to lose,
@@ -4270,6 +4144,11 @@ function winGoal(id){ achieveGoal(id); }
 function reopenGoal(id){
   var g = goals.find(function(x){ return x.id === id; });
   if (!g) return;
+  /* Reopening an Active goal would hand it the focus again. */
+  if (g.goalType === "active" && goals.some(function(x){ return x.id !== id && holdsFocus(x); })){
+    setSaveStatus("Complete your active goal before reopening another.");
+    return false;
+  }
   g.achievedAt = null;
   /* Reopening ends the victory. Without this the record still matched the
      Victory filter (outcome + reflectionStatus) while ALSO reappearing in the
@@ -4292,10 +4171,21 @@ function reopenGoal(id){
   if (g.goalType === "future") g.goalType = "active";
   save();
 }
-function activationToday(){ return new Date().toISOString().slice(0, 10); }
+function activationToday(){
+  var d = new Date();
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+var lastActivationMessage = "";
 function activationBlocked(message){
+  lastActivationMessage = message;
   setSaveStatus("Activation blocked: " + message);
   return false;
+}
+/* Once exactly one goal holds the focus (after the switch-over, or in a fresh
+   start), it is locked until completed. While legacy data still has several
+   "active" goals, cleanup stays possible until the user picks one. */
+function isLockedFocus(g){
+  return holdsFocus(g) && goals.filter(holdsFocus).length === 1;
 }
 function holdsFocus(g){
   if (!g || g.goalType !== "active" || isIdeaRecord(g) || isArchivedGoal(g)) return false;
@@ -4333,7 +4223,7 @@ function activateLegacyGoalLocally(id, finalize, options){
 function switchOverLegacyGoal(id, finalize){
   return activateLegacyGoalLocally(id, !!finalize, { allowUnplanned: true, source: "switch-over" });
 }
-async function activatePlannedGoal(id){
+async function activatePlannedGoal(id, opts){
   var index = goals.findIndex(function(x){ return x.id === id; });
   if (index < 0 || isArchivedGoal(goals[index])) return false;
   var current = goals[index];
@@ -4341,9 +4231,12 @@ async function activatePlannedGoal(id){
     goalType: "active", status: "active", why: current.why || current.description || "",
     description: current.description || current.why || "", achievedAt: null
   }));
-  var readiness = goalPlanReadiness(candidate, activationToday());
-  if (!readiness.ready) return activationBlocked("complete the plan first: " + readiness.missing.join(", "));
-  if (!cloudSave.ready || !cloudSave.user) return activationBlocked("sign in and wait for cloud sync");
+  /* One engine: the same Clarity Gate, calibration and lock the screens use. */
+  var checkOpts = Object.assign({ today: activationToday(), calibration: reformCalibration() }, opts || {});
+  var blocker = GoalReformCore.activationBlocker(goals, id, checkOpts);
+  if (blocker) return activationBlocked(blocker);
+  if (!cloudSave.user) return activateGoalLocally(index, candidate);
+  if (!cloudSave.ready) return activationBlocked("sign in and wait for cloud sync");
   if (cloudSave.startupPending || !cloudSave.initialReadDone || !authoritativeStateReady) return activationBlocked("wait for cloud confirmation");
   if (!window.__V2_SYNC_ACTIVE || typeof window.readGoalFocus !== "function" || typeof window.commitGoalActivation !== "function" || typeof window.getV2RecordRevision !== "function") {
     return activationBlocked("cloud focus is unavailable; retry sync");
@@ -4368,8 +4261,130 @@ async function activatePlannedGoal(id){
     return true;
   } catch(error) {
     console.warn("Goal activation failed", error && error.code, error && error.message);
+    if (error && error.code === "FOCUS_LOCKED") {
+      var holder = goals.find(function(x){ return x.id === error.activeGoalId; });
+      return activationBlocked("Complete \"" + ((holder && holder.title) || "your active goal") + "\" first. Only one goal can be active, and it stays active until it's completed.");
+    }
     return activationBlocked(error && error.code === "REVISION_CONFLICT" ? "cloud changed; reload and resolve focus" : "cloud focus could not be confirmed; retry sync");
   }
+}
+/* ================================================================
+   Goal Reform: the Mission Board / Definition Workshop (goal-reform-ui.js)
+   talk to the app only through this adapter. Signed in, activation and
+   completion go through the atomic cloud focus record; signed out, the
+   same one-goal lock is enforced on this device.
+   ================================================================ */
+var reformCompletionInFlight = false;
+var missionMounted = false;
+function reformCalibration(){
+  var history = goals.filter(function(g){ return g && g.goalPlan && g.goalPlan.actualHours && (g.achievedAt || g.outcome === "completed"); }).map(function(g){
+    var snap = g.goalPlan.deadlineDecision && g.goalPlan.deadlineDecision.calculationSnapshot;
+    return { estimatedHours: snap ? snap.meanHours : 0, actualHours: g.goalPlan.actualHours };
+  });
+  return GoalReformCore.calibrationFactor(history).factor;
+}
+function reformLoggedHours(id){
+  var g = goals.find(function(x){ return x.id === id; });
+  return g ? (g.timerSessions || []).reduce(function(t, s){ return t + (Number(s.minutes) || 0); }, 0) / 60 : 0;
+}
+function reformLogTime(id, minutes){
+  if (!canEditOrExportGoals()) return false;
+  var g = goals.find(function(x){ return x.id === id; });
+  minutes = Math.floor(Number(minutes));
+  if (!g || !(minutes > 0)) return false;
+  var at = Date.now();
+  g.timerSessions = normalizeTimerSessions(g.timerSessions);
+  g.timerSessions.push({ id: uid(), minutes: minutes, startedAt: at - minutes * 60000, completedAt: at });
+  save();
+  return true;
+}
+function reformSaveGoal(g){
+  if (!canEditOrExportGoals() || !g || !g.id) return;
+  var i = goals.findIndex(function(x){ return x.id === g.id; });
+  var next = normalize(g);
+  if (i >= 0) goals[i] = next; else goals.push(next);
+  save();
+}
+function reformCreateGoal(title){
+  if (!canEditOrExportGoals()) return null;
+  var g = normalize({ id: uid(), title: title, goalType: "future", status: "future", createdAt: Date.now() });
+  goals.push(g);
+  save();
+  return g;
+}
+/* Signed out: the one-goal lock is enforced on this device (activationBlocker
+   already refused a second goal). It syncs as an ordinary record later. */
+function activateGoalLocally(index, candidate){
+  if (!candidate.finalizedAt) candidate.finalizedAt = Date.now();
+  if (!candidate.initialPlanSnapshot) candidate.initialPlanSnapshot = snapshotGoal(candidate);
+  goals[index] = normalize(candidate);
+  save();
+  setSaveStatus("Local lock: active on this device (sign in to sync)");
+  return true;
+}
+async function reformActivate(id, opts){
+  lastActivationMessage = "";
+  var ok = await activatePlannedGoal(id, opts);
+  return ok ? { ok: true } : { ok: false, message: lastActivationMessage || "Activation didn't go through. Try again." };
+}
+/* Completing is the only way to free the focus. Signed in, the completed goal
+   and the cleared focus are written in one transaction; if it fails, the
+   local completion is rolled back so the two can never disagree. */
+async function reformComplete(id){
+  var index = goals.findIndex(function(x){ return x.id === id; });
+  if (index < 0) return { ok: false, message: "That goal no longer exists." };
+  var cloud = cloudSave.user && window.__V2_SYNC_ACTIVE && typeof window.commitGoalCompletion === "function";
+  if (!cloud) return completeGoal(id) ? { ok: true } : { ok: false, message: "This goal can't be completed right now." };
+  if (!canEditOrExportGoals()) return { ok: false, message: "Wait for cloud confirmation, then try again." };
+  var before = JSON.parse(JSON.stringify(goals[index]));
+  reformCompletionInFlight = true;
+  try {
+    var focus = await window.readGoalFocus();
+    var goalRevision = window.getV2RecordRevision("goals", id);
+    if (!achieveGoal(id)) throw new Error("not completable");
+    var result = await window.commitGoalCompletion({ recordType: "goal", id: id, payload: goals[index] }, goalRevision, focus.revision);
+    goals[index] = normalize(result.goal.payload);
+    goalFocus = result.focus;
+    reformCompletionInFlight = false;
+    saveLocalGoals();
+    render();
+    celebrateMainGoal(goals[index]);
+    return { ok: true };
+  } catch(error) {
+    reformCompletionInFlight = false;
+    goals[index] = normalize(before);
+    saveLocalGoals();
+    render();
+    console.warn("Goal completion failed", error && error.code, error && error.message);
+    return { ok: false, message: error && error.code === "FOCUS_MISMATCH" ? "Only the active goal can be completed. Reload to see the current focus." : "Completion couldn't be confirmed in the cloud. Nothing was changed; try again." };
+  }
+}
+function reformHost(){
+  return {
+    mountEl: document.getElementById("missionView"),
+    getGoals: function(){ return goals; },
+    saveGoal: reformSaveGoal,
+    createGoal: reformCreateGoal,
+    activate: reformActivate,
+    complete: reformComplete,
+    loggedHours: reformLoggedHours,
+    logTime: reformLogTime,
+    calibration: reformCalibration,
+    today: activationToday,
+    copyText: function(text){ try { navigator.clipboard.writeText(text); } catch(e){} },
+    openDaily: function(){ setView("daily"); }
+  };
+}
+/* The app re-renders on every save. Never redraw the Mission view while the
+   user is typing in it, or they would lose their cursor mid-sentence. */
+function renderMissionView(){
+  if (typeof GoalReformUI === "undefined" || currentView !== "mission") return;
+  var el = document.getElementById("missionView");
+  if (!el) return;
+  if (!missionMounted){ missionMounted = true; GoalReformUI.mount(reformHost()); return; }
+  var focused = document.activeElement;
+  if (focused && el.contains && el.contains(focused) && /^(INPUT|TEXTAREA|SELECT)$/.test(focused.tagName || "")) return;
+  GoalReformUI.render();
 }
 function activateFutureGoal(id){
   var g = goals.find(function(x){ return x.id === id; });
@@ -5160,6 +5175,10 @@ function saveForm(keepOpen){
 async function deleteGoalById(id){
   id = String(id || "");
   if (!id || !goals.some(function(goal){ return goal.id === id; })) return false;
+  if (isLockedFocus(goals.find(function(goal){ return goal.id === id; }))){
+    setSaveStatus("The active goal can't be deleted. Complete it first.");
+    return false;
+  }
   if (deletingGoalIds[id]) return false;
   if (!cloudSave.user) {
     setSaveStatus("Delete blocked: sign in and wait for cloud sync");

@@ -502,9 +502,19 @@
         progress.campaigns.done + "/" + progress.campaigns.total + " campaigns · " + progress.operations.done + "/" + progress.operations.total +
         " operations · " + progress.missions.done + "/" + progress.missions.total + " missions</span></div>" +
       nextPanel +
+      (!o.preview && host && host.logTime ? logTimeRow(goal.id) : "") +
       (pace ? "<p class=\"grf-hours\">Logged " + fmtHours(logged) + " of ~" + fmtHours(forecast.hours.mean) + " · need " + fmtHours(pace.requiredHoursPerWeek) +
         "/week from now" + (pace.projectedFinish ? " · projected finish " + fmtDate(pace.projectedFinish) : "") + "</p>" : "") +
       "</div>";
+  }
+
+  // Logged focused time feeds the pace badge. No pop-ups: quick buttons plus an inline field.
+  function logTimeRow(goalId) {
+    return "<div class=\"grf-log\" role=\"group\" aria-label=\"Log focused time\"><span class=\"grf-kicker\">LOG FOCUSED TIME</span>" +
+      "<button type=\"button\" class=\"grf-small\" onclick=\"" + call("logTime", goalId, 25) + "\">+25 min</button>" +
+      "<button type=\"button\" class=\"grf-small\" onclick=\"" + call("logTime", goalId, 60) + "\">+1 h</button>" +
+      "<input id=\"grf-log-min\" type=\"number\" min=\"1\" max=\"720\" placeholder=\"min\" aria-label=\"Minutes of focused work\">" +
+      "<button type=\"button\" class=\"grf-small\" onclick=\"" + call("logTime", goalId, raw("null")) + "\">Log</button></div>";
   }
 
   function boardBody(goal, plan, o) {
@@ -928,6 +938,16 @@
       host.saveGoal(Object.assign({}, g, { goalPlan: plan }));
       render();
     },
+    logTime: function (id, minutesArg) {
+      var input = host.mountEl && host.mountEl.querySelector ? host.mountEl.querySelector("#grf-log-min") : null;
+      var minutes = Math.floor(Number(minutesArg != null ? minutesArg : (input && input.value)));
+      if (!(minutes > 0 && minutes <= 720)) return flash("Enter the minutes you worked (1 to 720).");
+      if (!host.logTime) return false;
+      host.logTime(id, minutes);
+      state.flash = "";
+      render();
+      return true;
+    },
     nextActionDone: function (id) { state.confirm = { kind: "next", id: id }; render(); },
     saveNextAction: function (id, textArg, minutesArg) {
       var el = host.mountEl;
@@ -1106,6 +1126,8 @@
     ".grf-next{border:1px solid var(--gold);background:var(--goldBg);border-radius:4px;padding:12px;margin-top:10px}",
     ".grf-next p{margin:6px 0 0;font-size:16px;font-weight:700}",
     ".grf-hours{font-size:12px;color:var(--text2);margin:10px 0 0}",
+    ".grf-log{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:10px}",
+    ".grf-log input{width:80px;background:var(--soft);color:var(--text);border:1px solid var(--border);border-radius:3px;padding:4px 6px;font:inherit}",
     ".grf-pace{font-size:12px;font-weight:700;letter-spacing:.1em;padding:3px 10px;border-radius:10px;border:1px solid currentColor}",
     ".grf-pace-on-pace,.grf-pace-ahead{color:var(--green)}.grf-pace-behind{color:var(--gold)}.grf-pace-overdue{color:var(--red)}",
     ".grf-campaign{border:1px solid var(--border);border-radius:4px;margin:8px 0;background:var(--canvas)}",

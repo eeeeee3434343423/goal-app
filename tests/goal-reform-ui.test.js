@@ -399,3 +399,20 @@ test("activation hands the host the same today + calibration the gate used", asy
   assert.equal(seen.calibration, 1.13);
   assert.equal(seen.today, store.today);
 });
+
+test("focused time is logged from the board without pop-ups and drives the pace", async () => {
+  const { host, store } = makeHost([]);
+  host.logTime = (id, minutes) => { store.logged[id] = (store.logged[id] || 0) + minutes / 60; };
+  ui.mount(host);
+  const g = defineGoal("Goal");
+  chooseCoinFlipDate(store);
+  ui.activate(g.id);
+  await ui.confirmActivate(g.id);
+  assert.match(html(host), /LOG FOCUSED TIME/);
+  assert.equal(ui.logTime(g.id, 0), false);
+  assert.match(html(host), /Enter the minutes you worked/);
+  assert.equal(ui.logTime(g.id, 60), true);
+  assert.equal(ui.logTime(g.id, 30), true);
+  assert.equal(store.logged[g.id], 1.5);
+  assert.match(html(host), /Logged 1\.5 h/);
+});

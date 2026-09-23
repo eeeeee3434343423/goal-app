@@ -169,11 +169,23 @@ test("archivedAt is carried through an ordinary edit of the goal", () => {
 /* ================================================================== */
 
 test("incomplete active, small and future goals can all be archived", () => {
-  const { context } = createHarness([activeGoal(), smallGoal(), futureGoal()]);
+  // Legacy data with several active goals (before the switch-over) can still be cleaned up.
+  const { context } = createHarness([activeGoal(), activeGoal({ id: "a2", title: "A second legacy active goal" }), smallGoal(), futureGoal()]);
   assert.equal(context.archiveGoal("a1"), true);
   assert.equal(context.archiveGoal("m1"), true);
   assert.equal(context.archiveGoal("f1"), true);
   assert.equal(context.archivedGoals().length, 3);
+});
+
+test("the one goal holding the focus cannot be archived until it is completed", () => {
+  // Reform (Joel, 2026-09-22): the chosen goal stays active until completed.
+  const { context } = createHarness([activeGoal(), smallGoal()]);
+  assert.equal(context.archiveGoal("a1"), false);
+  assert.equal(context.archiveButtonHtml(context.goals[0]), "");
+  assert.equal(context.archiveGoal("m1"), true, "other goals can still be archived");
+  context.goals[0].achievedAt = 1787000000000;
+  context.goals[0].outcome = "completed";
+  assert.equal(context.goals.filter(context.holdsFocus).length, 0, "completing it releases the focus");
 });
 
 test("a draft active goal being planned can be archived", () => {
@@ -217,7 +229,7 @@ test("an archived goal cannot be won, completed or activated behind the tab", ()
 /* ================================================================== */
 
 test("an archived goal leaves Today and its own tab, and appears in the Archive tab", () => {
-  const { context, elements } = createHarness([activeGoal(), smallGoal(), futureGoal()]);
+  const { context, elements } = createHarness([activeGoal(), activeGoal({ id: "a2", title: "A second legacy active goal" }), smallGoal(), futureGoal()]);
   context.archiveGoal("a1");
   context.archiveGoal("m1");
   context.archiveGoal("f1");
@@ -266,7 +278,7 @@ test("the empty Archive tab explains itself instead of showing a blank page", ()
 });
 
 test("archive cards offer Restore, and live cards offer Archive", () => {
-  const { context, elements } = createHarness([activeGoal(), smallGoal(), futureGoal(), dailyGoal()]);
+  const { context, elements } = createHarness([activeGoal(), activeGoal({ id: "a2", title: "A second legacy active goal" }), smallGoal(), futureGoal(), dailyGoal()]);
   context.render();
   assert.match(elements.activeList.innerHTML, /archiveGoal\('a1'\)/);
   assert.match(elements.smallList.innerHTML, /archiveGoal\('m1'\)/);
@@ -288,7 +300,7 @@ test("a won goal shows no Archive button", () => {
 /* ================================================================== */
 
 test("an archived goal past its deadline is not marked missed", () => {
-  const { context } = createHarness([activeGoal({ deadline: "2099-01-01" })]);
+  const { context } = createHarness([activeGoal({ deadline: "2099-01-01" }), activeGoal({ id: "a2", title: "A second legacy active goal" })]);
   context.archiveGoal("a1");
   const changed = context.evaluateMissedGoals(Date.parse("2099-06-01T12:00:00Z"));
   assert.equal(changed, 0);
@@ -297,7 +309,7 @@ test("an archived goal past its deadline is not marked missed", () => {
 });
 
 test("restoring a goal whose deadline passed asks for review instead of handing it a miss", () => {
-  const { context } = createHarness([activeGoal({ deadline: "2099-01-01" })]);
+  const { context } = createHarness([activeGoal({ deadline: "2099-01-01" }), activeGoal({ id: "a2", title: "A second legacy active goal" })]);
   context.archiveGoal("a1");
   context.unarchiveGoal("a1", Date.parse("2099-06-01T12:00:00Z"));
   assert.equal(context.goals[0].migrationOverdue, true, "it comes back for review");
@@ -307,7 +319,7 @@ test("restoring a goal whose deadline passed asks for review instead of handing 
 });
 
 test("an archived overdue goal does not sit in the Overdue review banner", () => {
-  const { context } = createHarness([activeGoal({ deadline: "2099-01-01", migrationOverdue: true })]);
+  const { context } = createHarness([activeGoal({ deadline: "2099-01-01", migrationOverdue: true }), activeGoal({ id: "a2", title: "A second legacy active goal" })]);
   assert.equal(context.migrationOverdueGoals().length, 1);
   context.archiveGoal("a1");
   assert.equal(context.migrationOverdueGoals().length, 0);
