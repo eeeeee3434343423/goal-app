@@ -131,13 +131,13 @@ test("theme settings default safely, persist, reload, and support all choices", 
   const first = harness([]);
   assert.equal(first.context.appSettings.theme, "blue-orange");
   assert.equal(first.root.getAttribute("data-theme"), "blue-orange");
-  for (const theme of ["blue-orange", "blue-white", "orange-red"]) {
+  for (const theme of ["blue-orange", "blue-white", "orange-red", "black-orange"]) {
     first.context.setTheme(theme);
     assert.equal(JSON.parse(first.storage["achieve.settings.v1"]).theme, theme);
     assert.equal(first.root.getAttribute("data-theme"), theme);
   }
   const reloaded = harness([], first.storage["achieve.settings.v1"]);
-  assert.equal(reloaded.context.appSettings.theme, "orange-red");
+  assert.equal(reloaded.context.appSettings.theme, "black-orange");
   const malformed = harness([], "{bad json");
   assert.equal(malformed.context.appSettings.theme, "blue-orange");
   malformed.context.setTheme("not-real");

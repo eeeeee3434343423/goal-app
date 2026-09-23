@@ -9,6 +9,14 @@
     --blue:#4DA3FF;--blueBg:#102A43;--green:#57D38C;--greenBg:#102C20;--red:#FF5A5F;--redBg:#35191D;--gold:#FF9F55;--goldBg:#36230E;--ink:#D9E8F5;--grid:rgba(77,163,255,.075);--accent:#4DA3FF;--accent2:#FF9F55;}
   :root[data-theme="blue-white"]{--gold:#FFFFFF;--goldBg:#172A3C;--grid:rgba(255,255,255,.07);--accent:#4DA3FF;--accent2:#FFFFFF}
   :root[data-theme="orange-red"]{--blue:#FF9F55;--blueBg:#3B2412;--gold:#FF9F55;--goldBg:#3B2412;--red:#FF5A5F;--redBg:#421917;--grid:rgba(255,90,95,.07);--accent:#FF9F55;--accent2:#FF5A5F}
+  /* Black and orange: matches Joel's tracker site (pure black, amber #F59E0B, no grid). */
+  :root[data-theme="black-orange"]{--text:#F59E0B;--text2:#B09461;--canvas:#141416;--soft:#000000;--soft2:#0C0C0E;--border:#3A2F18;--blue:#F59E0B;--blueBg:#261A04;--green:#46946A;--greenBg:#0F1F16;--red:#FB7185;--redBg:#2A1116;--gold:#FBBF24;--goldBg:#241A06;--ink:#FBBF24;--grid:transparent;--accent:#F59E0B;--accent2:#FBBF24}
+  :root[data-theme="black-orange"] body{background-image:none;background-color:#000}
+  :root[data-theme="black-orange"] .secondary:hover{background:#261A04}
+  :root[data-theme="black-orange"] .completion-row button,:root[data-theme="black-orange"] .small-goal-row button,:root[data-theme="black-orange"] .delete-card-btn,:root[data-theme="black-orange"] .sg-remove,:root[data-theme="black-orange"] .danger{border-color:#5A2A30}
+  :root[data-theme="black-orange"] .achieve-btn{border-color:#2C4A38}
+  /* The Recovery button is styled inline by sync-v2-api.js; keep it on-theme. */
+  :root[data-theme="black-orange"] #v2-recovery-button{background:#141416 !important;color:#F59E0B !important;border:1px solid #3A2F18 !important}
   *{box-sizing:border-box}
   body{margin:0;font-family:Consolas,'Cascadia Mono','Segoe UI',monospace;background-color:var(--soft);background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px),radial-gradient(circle at 50% 0,var(--blueBg),var(--soft) 58%);background-size:32px 32px,32px 32px,100% 100%;background-attachment:fixed;color:var(--text);font-size:15px;line-height:1.5}
   .wrap{max-width:940px;margin:0 auto;padding:28px 20px 60px}
@@ -311,6 +319,7 @@
           <option value="blue-orange">Blue and orange</option>
           <option value="blue-white">Blue and white</option>
           <option value="orange-red">Orange and red</option>
+          <option value="black-orange">Black and orange</option>
         </select>
         <p class="sub">Saved on this device only. Goal data is not changed.</p>
       </section>
@@ -555,7 +564,7 @@
 "use strict";
 var KEY = "achieve.goals.v1";
 var SETTINGS_KEY = "achieve.settings.v1";
-var THEMES = { "blue-orange": 1, "blue-white": 1, "orange-red": 1 };
+var THEMES = { "blue-orange": 1, "blue-white": 1, "orange-red": 1, "black-orange": 1 };
 function normalizeSettings(value){
   var source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   return { theme: THEMES[source.theme] ? source.theme : "blue-orange" };
