@@ -9,6 +9,32 @@ service cloud.firestore {
         && data.createdAt is timestamp && data.updatedAt == request.time
         && data.updatedBy is string && data.updatedBy.size() > 0 && data.updatedBy.size() <= 128;
     }
+    function validFocus(data) {
+      return data.keys().hasOnly(['activeGoalId','revision','createdAt','updatedAt','updatedBy'])
+        && (data.activeGoalId == null || (data.activeGoalId is string && data.activeGoalId.size() > 0 && data.activeGoalId.size() <= 128))
+        && data.revision is int && data.revision >= 1
+        && data.createdAt is timestamp && data.updatedAt == request.time
+        && data.updatedBy is string && data.updatedBy.size() > 0 && data.updatedBy.size() <= 128;
+    }
+    function focusGoalExistsAfter(uid, activeGoalId) {
+      return activeGoalId == null
+        || existsAfter(/databases/$(database)/documents/users/$(uid)/goals/$(activeGoalId));
+    }
+    function focusClearHasCompletion(uid, activeGoalId) {
+      let completedGoal = getAfter(/databases/$(database)/documents/users/$(uid)/goals/$(activeGoalId));
+      return existsAfter(/databases/$(database)/documents/users/$(uid)/goals/$(activeGoalId))
+        && completedGoal.data.revision == get(/databases/$(database)/documents/users/$(uid)/goals/$(activeGoalId)).data.revision + 1
+        && (
+          (('achievedAt' in completedGoal.data.payload) && completedGoal.data.payload.achievedAt != null)
+          || (('outcome' in completedGoal.data.payload) && completedGoal.data.payload.outcome != null)
+        );
+    }
+    function validFocusTransition(uid) {
+      return request.resource.data.activeGoalId == resource.data.activeGoalId
+        || (resource.data.activeGoalId == null && request.resource.data.activeGoalId is string)
+        || (request.resource.data.activeGoalId == null && resource.data.activeGoalId is string
+          && focusClearHasCompletion(uid, resource.data.activeGoalId));
+    }
     function validGoalPayload(data) {
       return (!('id' in data) || (data.id is string && data.id.size() <= 128))
         && (!('title' in data) || (data.title is string && data.title.size() <= 500))
@@ -96,6 +122,18 @@ service cloud.firestore {
         && request.resource.data.revision == resource.data.revision + 1;
       allow delete: if owner(uid) && trashAfter(uid, 'hubApp', recordId).data.payload == resource.data.payload
         && trashAfter(uid, 'hubApp', recordId).data.revision == resource.data.revision;
+    }
+    match /users/{uid}/focus/active-goal {
+      allow read: if owner(uid);
+      allow create: if owner(uid) && validFocus(request.resource.data)
+        && request.resource.data.revision == 1
+        && focusGoalExistsAfter(uid, request.resource.data.activeGoalId);
+      allow update: if owner(uid) && validFocus(request.resource.data)
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.revision == resource.data.revision + 1
+        && focusGoalExistsAfter(uid, request.resource.data.activeGoalId)
+        && validFocusTransition(uid);
+      allow delete: if false;
     }
     match /users/{uid}/trash/{trashId} {
       allow read: if owner(uid);

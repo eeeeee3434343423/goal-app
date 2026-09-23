@@ -6,6 +6,14 @@
   var pending = Object.create(null);
   var readOnly = "";
 
+  function validFocus(value) {
+    return value && (value.activeGoalId === null || (typeof value.activeGoalId === "string" && value.activeGoalId.length > 0 && value.activeGoalId.length <= 128))
+      && Number.isSafeInteger(value.revision) && value.revision >= 0;
+  }
+  function hasCompletionOutcome(payload) {
+    return Boolean(payload) && (payload.achievedAt != null || payload.outcome != null);
+  }
+
   function requireConfig() {
     if (!config || !config.port) throw new Error("V2 Firestore is not configured.");
     if (readOnly) throw new Error(readOnly);
@@ -55,6 +63,78 @@
       return result;
     } finally {
       delete pending[pendingKey];
+    }
+  };
+  window.readGoalFocus = async function () {
+    var active = requireConfig();
+    if (typeof active.port.readFocus !== "function") throw new Error("V2 Firestore does not support goal focus.");
+    var result = await active.port.readFocus();
+    if (!validFocus(result)) throw new TypeError("Invalid cloud goal focus.");
+    return result;
+  };
+  window.commitGoalActivation = async function (goalMutation, expectedGoalRevision, expectedFocusRevision) {
+    var active = requireConfig();
+    if (!goalMutation || goalMutation.recordType !== "goal" || typeof goalMutation.id !== "string" || !goalMutation.id) {
+      throw new TypeError("Goal activation requires a goal mutation.");
+    }
+    if (!Number.isSafeInteger(expectedGoalRevision) || expectedGoalRevision < 0
+      || !Number.isSafeInteger(expectedFocusRevision) || expectedFocusRevision < 0) {
+      throw new TypeError("Goal activation requires current revisions.");
+    }
+    if (typeof active.port.commitGoalActivation !== "function") {
+      throw new Error("V2 Firestore does not support atomic goal activation.");
+    }
+    var goalKey = "goals/" + goalMutation.id;
+    var focusKey = "focus/active-goal";
+    pending[goalKey] = true;
+    pending[focusKey] = true;
+    try {
+      var result = await active.port.commitGoalActivation(
+        goalMutation, expectedGoalRevision, expectedFocusRevision, active.deviceId
+      );
+      if (!result || !result.goal || !validFocus(result.focus)) throw new TypeError("Invalid goal activation result.");
+      var validation = safety.validateCloudRecord(result.goal, "goal");
+      if (!validation.ok) throw new TypeError("Invalid activated goal " + result.goal.id + ": " + validation.errors.join("; "));
+      if (!cache.goals) cache.goals = Object.create(null);
+      cache.goals[result.goal.id] = result.goal;
+      return result;
+    } finally {
+      delete pending[goalKey];
+      delete pending[focusKey];
+    }
+  };
+  window.commitGoalCompletion = async function (goalMutation, expectedGoalRevision, expectedFocusRevision) {
+    var active = requireConfig();
+    if (!goalMutation || goalMutation.recordType !== "goal" || typeof goalMutation.id !== "string" || !goalMutation.id
+      || !hasCompletionOutcome(goalMutation.payload)) {
+      throw new TypeError("Goal completion requires a goal mutation with achievedAt or outcome.");
+    }
+    if (!Number.isSafeInteger(expectedGoalRevision) || expectedGoalRevision < 0
+      || !Number.isSafeInteger(expectedFocusRevision) || expectedFocusRevision < 0) {
+      throw new TypeError("Goal completion requires current revisions.");
+    }
+    if (typeof active.port.commitGoalCompletion !== "function") {
+      throw new Error("V2 Firestore does not support atomic goal completion.");
+    }
+    var goalKey = "goals/" + goalMutation.id;
+    var focusKey = "focus/active-goal";
+    pending[goalKey] = true;
+    pending[focusKey] = true;
+    try {
+      var result = await active.port.commitGoalCompletion(
+        goalMutation, expectedGoalRevision, expectedFocusRevision, active.deviceId
+      );
+      if (!result || !result.goal || !validFocus(result.focus) || result.focus.activeGoalId !== null) {
+        throw new TypeError("Invalid goal completion result.");
+      }
+      var validation = safety.validateCloudRecord(result.goal, "goal");
+      if (!validation.ok) throw new TypeError("Invalid completed goal " + result.goal.id + ": " + validation.errors.join("; "));
+      if (!cache.goals) cache.goals = Object.create(null);
+      cache.goals[result.goal.id] = result.goal;
+      return result;
+    } finally {
+      delete pending[goalKey];
+      delete pending[focusKey];
     }
   };
   window.syncV2Records = async function (collectionName, rawRecords, recordType) {

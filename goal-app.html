@@ -255,6 +255,7 @@
 <script src="./sync-safety-v2.js"></script>
 <script src="./sync-v2-api.js"></script>
 <script src="./sync-v2-firestore-modern.js"></script>
+<script src="./goal-reform-core.js"></script>
 </head>
 <body>
 <div class="wrap">
@@ -603,6 +604,7 @@ var FIREBASE_CONFIG = {
 var SYNC_UPDATED_KEY = "achieve.goals.sync.updatedAt";
 var applyingCloud = false;
 var cloudSave = { ready: false, user: null, auth: null, authMod: null, docRef: null, setDoc: null, getDoc: null, onSnapshot: null, unsubscribe: null, initialReadDone: true, startupPending: false, hiddenGoalPayloads: [] };
+var goalFocus = null;
 
 function esc(s){ return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
 function uid(){ return "g" + Date.now() + Math.floor(Math.random() * 10000); }
@@ -1717,6 +1719,154 @@ function buildGoalCopyText(g, mode){
   return mode === "review" ? AI_REVIEW_HEADER + body : body;
 }
 
+/* ================================================================
+   Goal Reform: additive planning and deterministic P50 forecasting.
+   These helpers intentionally do not write clocks or change legacy fields.
+   ================================================================ */
+function planningText(value){ return textField(value).trim(); }
+function planningHours(value){
+  var number = Number(value);
+  return Number.isFinite(number) && number > 0 && number <= 100000 ? Math.round(number * 100) / 100 : null;
+}
+function planningDate(value){ return /^\d{4}-\d{2}-\d{2}$/.test(textField(value)) ? textField(value) : ""; }
+function planningUtcDay(value){
+  var date = planningDate(value);
+  if (!date) return null;
+  var parts = date.split("-").map(Number);
+  var day = Date.UTC(parts[0], parts[1] - 1, parts[2]);
+  var check = new Date(day);
+  return check.getUTCFullYear() === parts[0] && check.getUTCMonth() === parts[1] - 1 && check.getUTCDate() === parts[2] ? day : null;
+}
+function planningDateFromDay(day){
+  var date = new Date(day);
+  return date.getUTCFullYear() + "-" + String(date.getUTCMonth() + 1).padStart(2, "0") + "-" + String(date.getUTCDate()).padStart(2, "0");
+}
+function planningAddDays(date, days){
+  var day = planningUtcDay(date);
+  return day == null ? "" : planningDateFromDay(day + Math.max(0, Math.ceil(days || 0)) * 86400000);
+}
+function normalizeGoalPlan(value, idState){
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  var researchIds = {}, operationIds = {}, missionIds = {};
+  var research = (Array.isArray(value.research) ? value.research : []).map(function(item, index){
+    if (!item || typeof item !== "object") return null;
+    var question = planningText(item.question), source = planningText(item.source), insight = planningText(item.insight);
+    if (!question || !source || !insight) return null;
+    return { id: safeId(item.id, "research-", researchIds, "research|" + index + "|" + question + "|" + source), question: question, source: source, insight: insight, createdAt: Number(item.createdAt) > 0 ? Number(item.createdAt) : null };
+  }).filter(Boolean);
+  var operations = (Array.isArray(value.operations) ? value.operations : []).map(function(item, index){
+    if (!item || typeof item !== "object") return null;
+    var title = planningText(item.title), result = planningText(item.result);
+    if (!title || !result) return null;
+    var estimate = item.estimate && typeof item.estimate === "object" ? item.estimate : {};
+    var optimisticHours = planningHours(estimate.optimisticHours), likelyHours = planningHours(estimate.likelyHours), pessimisticHours = planningHours(estimate.pessimisticHours);
+    var missions = (Array.isArray(item.missions) ? item.missions : []).map(function(mission, missionIndex){
+      if (!mission || typeof mission !== "object") return null;
+      var text = planningText(mission.text);
+      if (!text) return null;
+      return { id: safeId(mission.id, "mission-", missionIds, "mission|" + index + "|" + missionIndex + "|" + text), text: text, done: !!mission.done, createdAt: Number(mission.createdAt) > 0 ? Number(mission.createdAt) : null, completedAt: Number(mission.completedAt) > 0 ? Number(mission.completedAt) : null };
+    }).filter(Boolean);
+    return {
+      id: safeId(item.id, "operation-", operationIds, "operation|" + index + "|" + title), title: title, result: result,
+      estimate: { optimisticHours: optimisticHours, likelyHours: likelyHours, pessimisticHours: pessimisticHours }, missions: missions
+    };
+  }).filter(Boolean);
+  var capacity = value.capacity && typeof value.capacity === "object" ? value.capacity : {};
+  var decision = value.deadlineDecision && typeof value.deadlineDecision === "object" ? value.deadlineDecision : {};
+  var inputMode = decision.inputMode === "date" ? "date" : "duration";
+  var duration = Number(decision.requestedDurationDays);
+  return {
+    version: 1,
+    purpose: planningText(value.purpose), definition: planningText(value.definition), lifeGrowth: planningText(value.lifeGrowth),
+    successEvidence: planningText(value.successEvidence), exclusions: planningText(value.exclusions), currentReality: planningText(value.currentReality),
+    research: research, capacity: { hoursPerWeek: planningHours(capacity.hoursPerWeek), constraints: planningText(capacity.constraints) },
+    operations: operations,
+    nextAction: { text: planningText(value.nextAction && value.nextAction.text), scheduledFor: planningDate(value.nextAction && value.nextAction.scheduledFor) },
+    deadlineDecision: {
+      inputMode: inputMode, date: planningDate(decision.date), requestedDurationDays: Number.isFinite(duration) && duration > 0 && duration <= 3650 ? Math.round(duration) : null,
+      rationale: planningText(decision.rationale), assumptions: planningText(decision.assumptions),
+      calculationSnapshot: decision.calculationSnapshot && typeof decision.calculationSnapshot === "object" ? Object.assign({}, decision.calculationSnapshot) : null,
+      decidedAt: Number(decision.decidedAt) > 0 ? Number(decision.decidedAt) : null
+    }
+  };
+}
+function forecastSeed(value){
+  var text = String(value || "goal");
+  var hash = 2166136261;
+  for (var i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 16777619);
+  return function(){ hash += 0x6D2B79F5; var t = hash; t = Math.imul(t ^ t >>> 15, t | 1); t ^= t + Math.imul(t ^ t >>> 7, t | 61); return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+function forecastNormal(random){
+  var u = Math.max(random(), 0.0000001), v = random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+function forecastGamma(shape, random){
+  if (shape < 1) return forecastGamma(shape + 1, random) * Math.pow(Math.max(random(), 0.0000001), 1 / shape);
+  var d = shape - 1 / 3, c = 1 / Math.sqrt(9 * d);
+  while (true){
+    var x = forecastNormal(random), v = 1 + c * x;
+    if (v <= 0) continue;
+    v = v * v * v;
+    var u = random();
+    if (u < 1 - 0.0331 * x * x * x * x || Math.log(Math.max(u, 0.0000001)) < 0.5 * x * x + d * (1 - v + Math.log(v))) return d * v;
+  }
+}
+function forecastPert(estimate, random){
+  var low = estimate.optimisticHours, likely = estimate.likelyHours, high = estimate.pessimisticHours;
+  if (!(low > 0 && likely >= low && high >= likely)) return null;
+  if (low === high) return low;
+  var alpha = 1 + 4 * (likely - low) / (high - low), beta = 1 + 4 * (high - likely) / (high - low);
+  var a = forecastGamma(alpha, random), b = forecastGamma(beta, random);
+  return low + (high - low) * a / (a + b);
+}
+function calculateDeadlineForecast(plan, today, seed){
+  plan = normalizeGoalPlan(plan, { goalIds: {} });
+  var todayDay = planningUtcDay(today);
+  if (!plan || todayDay == null || !plan.capacity.hoursPerWeek) return null;
+  var estimates = plan.operations.map(function(operation){ return operation.estimate; }).filter(function(estimate){ return estimate.optimisticHours && estimate.likelyHours && estimate.pessimisticHours && estimate.optimisticHours <= estimate.likelyHours && estimate.likelyHours <= estimate.pessimisticHours; });
+  /* A missing estimate is unknown work, not zero work. Refuse a forecast
+     rather than producing a falsely comfortable P50 from a partial plan. */
+  if (!estimates.length || estimates.length !== plan.operations.length) return null;
+  var random = forecastSeed(String(seed || "goal") + "|" + JSON.stringify(estimates) + "|" + plan.capacity.hoursPerWeek);
+  var samples = [];
+  for (var i = 0; i < 1024; i++){
+    var hours = estimates.reduce(function(total, estimate){ return total + forecastPert(estimate, random); }, 0);
+    samples.push(hours * 7 / plan.capacity.hoursPerWeek);
+  }
+  samples.sort(function(a, b){ return a - b; });
+  function percentile(value){ return samples[Math.round((samples.length - 1) * value)]; }
+  var p10Days = percentile(0.1), p50Days = percentile(0.5), p90Days = percentile(0.9);
+  var decision = plan.deadlineDecision;
+  var selectedDate = decision.inputMode === "date" ? decision.date : planningAddDays(today, decision.requestedDurationDays || p50Days);
+  var selectedDay = planningUtcDay(selectedDate);
+  var selectedDays = selectedDay == null ? null : Math.max(0, Math.ceil((selectedDay - todayDay) / 86400000));
+  var percentileRank = selectedDays == null ? null : Math.round(samples.filter(function(days){ return days <= selectedDays; }).length / samples.length * 100);
+  return {
+    sampleCount: samples.length, p10Date: planningAddDays(today, p10Days), p50Date: planningAddDays(today, p50Days), p90Date: planningAddDays(today, p90Days),
+    p10Days: Math.ceil(p10Days), p50Days: Math.ceil(p50Days), p90Days: Math.ceil(p90Days),
+    selectedDate: selectedDate, selectedDatePercentile: percentileRank, requiredHoursPerWeek: Math.round(percentile(0.5) / Math.max(1, selectedDays == null ? p50Days : selectedDays) * 7 * 100) / 100
+  };
+}
+function validateDeadlineDecision(value, forecast, today){
+  var errors = [], decision = value && typeof value === "object" ? value : {};
+  if (!forecast) return ["Add valid milestone estimates and a positive weekly capacity before calculating a deadline."];
+  if (!planningText(decision.rationale)) errors.push("Explain why this P50 deadline is credible.");
+  if (!planningText(decision.assumptions)) errors.push("Write the assumptions behind this deadline.");
+  if (!forecast.selectedDate || planningUtcDay(forecast.selectedDate) == null || planningUtcDay(forecast.selectedDate) <= planningUtcDay(today)) errors.push("Choose a future deadline or duration.");
+  if (forecast.selectedDatePercentile == null || forecast.selectedDatePercentile < 40 || forecast.selectedDatePercentile > 60) errors.push("Choose a deadline in the calculated P40-P60 target zone.");
+  return errors;
+}
+function goalPlanReadiness(goal, today){
+  var plan = goal && goal.goalPlan, missing = [];
+  if (!plan){ return { ready: false, missing: ["purpose", "definition", "research", "plan", "deadline", "next action"] }; }
+  [["purpose", plan.purpose], ["definition", plan.definition], ["life growth", plan.lifeGrowth], ["success evidence", plan.successEvidence], ["current reality", plan.currentReality]].forEach(function(pair){ if (!planningText(pair[1])) missing.push(pair[0]); });
+  if ((plan.research || []).length < 3) missing.push("research");
+  if ((plan.operations || []).length < 3) missing.push("three outcome milestones");
+  if (!plan.nextAction || !planningText(plan.nextAction.text)) missing.push("next action");
+  if (!plan.capacity || !plan.capacity.hoursPerWeek) missing.push("weekly capacity");
+  if (today){ var forecast = calculateDeadlineForecast(plan, today, goal && goal.id); if (validateDeadlineDecision(plan.deadlineDecision, forecast, today).length) missing.push("P50 deadline"); }
+  return { ready: missing.length === 0, missing: missing };
+}
 function normalizeGoalType(g){
   if (g.goalType === "future" || g.type === "future" || g.future === true) return "future";
   if (g.goalType === "small" || g.type === "small" || g.small === true) return "small";
@@ -1792,6 +1942,10 @@ function normalize(g, idState){
     ideaDeletedAt: Number(g.ideaDeletedAt) > 0 ? Number(g.ideaDeletedAt) : null,
     convertedGoalId: textField(g.convertedGoalId),
     originIdeaId: textField(g.originIdeaId),
+    /* The Workshop owns the complete, additive plan shape. Never rebuild it
+       here: its unknown/future fields are user-authored and must survive a
+       normal save, import, reload, and cloud round trip. */
+    goalPlan: g.goalPlan ? (typeof GoalReformCore !== "undefined" ? GoalReformCore.normalizeGoalPlan(g.goalPlan) : normalizeGoalPlan(g.goalPlan)) : null,
     status: status,
     legacyClassification: legacyClassification,
     migratedAt: migratedAt,
@@ -1860,7 +2014,7 @@ function normalize(g, idState){
    the first save after rollout rewrites the whole collection. Keys that are
    still at their default are removed, so an untouched legacy record
    serializes exactly as it did before and sync sees no change. */
-var PRUNE_WHEN_DEFAULT = { migrationOverdue: false, lifecycleMigratedVersion: null, overdueAcknowledgedDeadline: "" };
+var PRUNE_WHEN_DEFAULT = { migrationOverdue: false, lifecycleMigratedVersion: null, overdueAcknowledgedDeadline: "", goalPlan: null };
 function pruneDefaults(record){
   Object.keys(PRUNE_WHEN_DEFAULT).forEach(function(key){
     if (record[key] === PRUNE_WHEN_DEFAULT[key]) delete record[key];
@@ -4138,18 +4292,84 @@ function reopenGoal(id){
   if (g.goalType === "future") g.goalType = "active";
   save();
 }
-function activateFutureGoal(id){
+function activationToday(){ return new Date().toISOString().slice(0, 10); }
+function activationBlocked(message){
+  setSaveStatus("Activation blocked: " + message);
+  return false;
+}
+function activateLegacyGoalLocally(id, finalize, options){
+  /* A legacy record deliberately has no P50 plan. It may take focus only
+     during the one-time, explicit switch-over; old Future/form controls must
+     never become a back door around the focus contract. */
+  if (!options || options.allowUnplanned !== true || options.source !== "switch-over") {
+    return activationBlocked("finish defining this legacy goal in the switch-over screen first");
+  }
   var g = goals.find(function(x){ return x.id === id; });
-  if (!g) return;
-  if (isArchivedGoal(g)) return;   /* restore it first, deliberately */
+  if (!g || isArchivedGoal(g)) return false;
+  var active = goals.find(function(x){ return x.id !== id && x.goalType === "active" && !x.achievedAt; });
+  if (active) return activationBlocked("Complete '" + (active.title || "the active goal") + "' first");
   g.goalType = "active";
-  /* Keep status in step with goalType, or the record would render as active
-     while still claiming to be Future. */
   g.status = "active";
   g.why = g.why || g.description || "";
   g.description = g.description || g.why || "";
   g.achievedAt = null;
+  if (finalize){
+    if (!g.finalizedAt) g.finalizedAt = Date.now();
+    if (!g.initialPlanSnapshot) g.initialPlanSnapshot = snapshotGoal(g);
+  }
   save();
+  return true;
+}
+/* This is intentionally the only call site that grants an unplanned legacy
+   record focus. The reform switch-over UI owns the corresponding explicit
+   user choice; ordinary Future and form actions do not pass this capability. */
+function switchOverLegacyGoal(id, finalize){
+  return activateLegacyGoalLocally(id, !!finalize, { allowUnplanned: true, source: "switch-over" });
+}
+async function activatePlannedGoal(id){
+  var index = goals.findIndex(function(x){ return x.id === id; });
+  if (index < 0 || isArchivedGoal(goals[index])) return false;
+  var current = goals[index];
+  var candidate = normalize(Object.assign({}, current, {
+    goalType: "active", status: "active", why: current.why || current.description || "",
+    description: current.description || current.why || "", achievedAt: null
+  }));
+  var readiness = goalPlanReadiness(candidate, activationToday());
+  if (!readiness.ready) return activationBlocked("complete the plan first: " + readiness.missing.join(", "));
+  if (!cloudSave.ready || !cloudSave.user) return activationBlocked("sign in and wait for cloud sync");
+  if (cloudSave.startupPending || !cloudSave.initialReadDone || !authoritativeStateReady) return activationBlocked("wait for cloud confirmation");
+  if (!window.__V2_SYNC_ACTIVE || typeof window.readGoalFocus !== "function" || typeof window.commitGoalActivation !== "function" || typeof window.getV2RecordRevision !== "function") {
+    return activationBlocked("cloud focus is unavailable; retry sync");
+  }
+  try {
+    var focus = await window.readGoalFocus();
+    if (!focus || !Number.isSafeInteger(focus.revision) || focus.revision < 0) throw new TypeError("Invalid cloud goal focus.");
+    var goalRevision = window.getV2RecordRevision("goals", id);
+    if (!Number.isSafeInteger(goalRevision) || goalRevision < 0) throw new TypeError("Goal revision is unavailable.");
+    if (!candidate.finalizedAt) candidate.finalizedAt = Date.now();
+    if (!candidate.initialPlanSnapshot) candidate.initialPlanSnapshot = snapshotGoal(candidate);
+    var result = await window.commitGoalActivation({ recordType: "goal", id: id, payload: candidate }, goalRevision, focus.revision);
+    if (!result || !result.goal || result.goal.id !== id || !result.goal.payload || typeof result.goal.payload !== "object"
+      || !result.focus || result.focus.activeGoalId !== id || !Number.isSafeInteger(result.focus.revision)) {
+      throw new TypeError("Invalid cloud activation result.");
+    }
+    goals[index] = normalize(result.goal.payload);
+    goalFocus = result.focus;
+    saveLocalGoals();
+    render();
+    setSaveStatus("Cloud: focus activated");
+    return true;
+  } catch(error) {
+    console.warn("Goal activation failed", error && error.code, error && error.message);
+    return activationBlocked(error && error.code === "REVISION_CONFLICT" ? "cloud changed; reload and resolve focus" : "cloud focus could not be confirmed; retry sync");
+  }
+}
+function activateFutureGoal(id){
+  var g = goals.find(function(x){ return x.id === id; });
+  /* Historical Future records have no reform plan. They must be chosen in the
+     one-time switch-over instead of bypassing the P50/focus lock here. */
+  if (g && !g.goalPlan) return activateLegacyGoalLocally(id, false);
+  return activatePlannedGoal(id);
 }
 
 function setFormMode(mode){
@@ -4718,8 +4938,11 @@ function finalizeGoal(id, target){
   target = target === "active" ? "active" : "future";
   var check = validateFormalGoal(normalize(g), target);
   if (!check.ok){ showFormErrors(check.errors); return false; }
+  /* The legacy form's Active action is not the explicit switch-over choice,
+     so it cannot activate an unplanned record. */
+  if (target === "active") return g.goalPlan ? activatePlannedGoal(id) : activateLegacyGoalLocally(id, true);
   g.status = target;
-  g.goalType = target === "active" ? "active" : "future";
+  g.goalType = "future";
   if (!g.finalizedAt) g.finalizedAt = Date.now();
   /* Written ONCE, the first time this goal is formally finalized, so Victory
      can later show what was originally planned rather than only the final
@@ -4731,10 +4954,10 @@ function finalizeGoal(id, target){
 }
 /* No hidden prerequisite: if this goal has not been saved yet, finalizing
    saves it first, then promotes it. */
-function finalizeFromForm(target){
+async function finalizeFromForm(target){
   if (saveForm(true) === false) return false;
   if (!editId) return false;
-  var ok = finalizeGoal(editId, target);
+  var ok = await finalizeGoal(editId, target);
   if (ok){ stopPlanningTimer(); closeForm(); }
   else focusFormField("readinessBox");
   return ok;

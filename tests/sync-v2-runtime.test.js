@@ -13,7 +13,7 @@ test("existing v2 goal records win over stale legacy payloads during migration",
 });
 
 function runtime() {
-  const records = { goals: [], hubApps: [], trash: [], changeLog: [] };
+  const records = { goals: [], hubApps: [], trash: [], changeLog: [], focus: null };
   const listeners = {};
   const document = {
     readyState: "complete",
@@ -51,6 +51,54 @@ function runtime() {
       if (index < 0) records[name].push(next); else records[name][index] = next;
       records.changeLog.push({ operation: current ? "update" : "create", recordId: next.id });
       return structuredClone(next);
+    },
+    async readFocus() {
+      return structuredClone(records.focus || { activeGoalId: null, revision: 0 });
+    },
+    async commitGoalActivation(mutation, expectedGoalRevision, expectedFocusRevision, deviceId) {
+      const index = records.goals.findIndex((item) => item.id === mutation.id);
+      const current = index < 0 ? null : records.goals[index];
+      const goalRevision = current ? current.revision : 0;
+      const focusRevision = records.focus ? records.focus.revision : 0;
+      if (records.focus && records.focus.activeGoalId !== null && records.focus.activeGoalId !== mutation.id) {
+        const error = new Error("Complete the current active goal before activating another.");
+        error.code = "FOCUS_LOCKED";
+        error.activeGoalId = records.focus.activeGoalId;
+        throw error;
+      }
+      if (goalRevision !== expectedGoalRevision || focusRevision !== expectedFocusRevision) {
+        const error = new Error("conflict"); error.code = "REVISION_CONFLICT"; throw error;
+      }
+      const goal = { id: mutation.id, payload: structuredClone(mutation.payload), schemaVersion: 2, revision: goalRevision + 1, updatedBy: deviceId };
+      const focus = { activeGoalId: mutation.id, revision: focusRevision + 1, updatedBy: deviceId };
+      if (index < 0) records.goals.push(goal); else records.goals[index] = goal;
+      records.focus = focus;
+      records.changeLog.push({ operation: current ? "update" : "create", recordType: "goal", recordId: mutation.id });
+      return { goal: structuredClone(goal), focus: structuredClone(focus) };
+    },
+    async commitGoalCompletion(mutation, expectedGoalRevision, expectedFocusRevision, deviceId) {
+      const index = records.goals.findIndex((item) => item.id === mutation.id);
+      const current = index < 0 ? null : records.goals[index];
+      const goalRevision = current ? current.revision : 0;
+      const focusRevision = records.focus ? records.focus.revision : 0;
+      if (!mutation.payload || (mutation.payload.achievedAt == null && mutation.payload.outcome == null)) {
+        throw new TypeError("Goal completion requires achievedAt or outcome.");
+      }
+      if (!records.focus || records.focus.activeGoalId !== mutation.id) {
+        const error = new Error("Only the current active goal can be completed.");
+        error.code = "FOCUS_MISMATCH";
+        error.activeGoalId = records.focus ? records.focus.activeGoalId : null;
+        throw error;
+      }
+      if (goalRevision !== expectedGoalRevision || focusRevision !== expectedFocusRevision) {
+        const error = new Error("conflict"); error.code = "REVISION_CONFLICT"; throw error;
+      }
+      const goal = { id: mutation.id, payload: structuredClone(mutation.payload), schemaVersion: 2, revision: goalRevision + 1, updatedBy: deviceId };
+      const focus = { activeGoalId: null, revision: focusRevision + 1, updatedBy: deviceId };
+      records.goals[index] = goal;
+      records.focus = focus;
+      records.changeLog.push({ operation: "update", recordType: "goal", recordId: mutation.id });
+      return { goal: structuredClone(goal), focus: structuredClone(focus) };
     },
     async trash(name, type, id, expectedRevision) {
       const index = records[name].findIndex((item) => item.id === id);
@@ -146,6 +194,113 @@ test("stale revisions propagate a controlled conflict", async () => {
     context.commitRecordMutation({ recordType: "goal", id: "a", payload: { id: "a", title: "stale" } }, 2),
     { code: "REVISION_CONFLICT" }
   );
+});
+
+test("activation atomically records one canonical focus and its goal mutation", async () => {
+  const { context, records, port } = runtime();
+  records.goals.push({ id: "planned", payload: { id: "planned", title: "Plan" }, schemaVersion: 2, revision: 4 });
+  await context.configureV2Sync({ uid: "u1", deviceId: "d1", port });
+  await context.loadV2Records("goals");
+
+  assert.deepEqual(await context.readGoalFocus(), { activeGoalId: null, revision: 0 });
+  const result = await context.commitGoalActivation(
+    { recordType: "goal", id: "planned", payload: { id: "planned", title: "Plan", status: "active" } },
+    4,
+    0
+  );
+
+  assert.equal(result.goal.revision, 5);
+  assert.deepEqual(result.focus, { activeGoalId: "planned", revision: 1, updatedBy: "d1" });
+  assert.equal(records.goals[0].payload.status, "active");
+  assert.equal(records.focus.activeGoalId, "planned");
+  assert.equal(records.changeLog.at(-1).recordId, "planned");
+});
+
+test("a second client is refused while another goal owns canonical focus", async () => {
+  const { context, records, port } = runtime();
+  records.goals.push(
+    { id: "first", payload: { id: "first", title: "First" }, schemaVersion: 2, revision: 1 },
+    { id: "second", payload: { id: "second", title: "Second" }, schemaVersion: 2, revision: 1 }
+  );
+  await context.configureV2Sync({ uid: "u1", deviceId: "d1", port });
+  await context.loadV2Records("goals");
+  await context.readGoalFocus();
+  await context.commitGoalActivation({ recordType: "goal", id: "first", payload: { id: "first", status: "active" } }, 1, 0);
+
+  await assert.rejects(
+    context.commitGoalActivation({ recordType: "goal", id: "second", payload: { id: "second", status: "active" } }, 1, 0),
+    (error) => error && error.code === "FOCUS_LOCKED" && error.activeGoalId === "first"
+  );
+  assert.equal(records.focus.activeGoalId, "first");
+  assert.equal(records.goals.find((goal) => goal.id === "second").revision, 1);
+});
+
+test("completion atomically records completion and releases canonical focus", async () => {
+  const { context, records, port } = runtime();
+  records.goals.push(
+    { id: "first", payload: { id: "first", status: "active" }, schemaVersion: 2, revision: 1 },
+    { id: "second", payload: { id: "second", status: "future" }, schemaVersion: 2, revision: 1 }
+  );
+  records.focus = { activeGoalId: "first", revision: 4 };
+  await context.configureV2Sync({ uid: "u1", deviceId: "d1", port });
+  await context.loadV2Records("goals");
+
+  const completed = await context.commitGoalCompletion(
+    { recordType: "goal", id: "first", payload: { id: "first", status: "done", achievedAt: "2026-09-23" } },
+    1,
+    4
+  );
+  assert.equal(completed.goal.revision, 2);
+  assert.equal(completed.focus.activeGoalId, null);
+  assert.equal(records.focus.activeGoalId, null);
+
+  const activated = await context.commitGoalActivation(
+    { recordType: "goal", id: "second", payload: { id: "second", status: "active" } },
+    1,
+    5
+  );
+  assert.equal(activated.focus.activeGoalId, "second");
+});
+
+test("completion cannot release another goal's canonical focus", async () => {
+  const { context, records, port } = runtime();
+  records.goals.push(
+    { id: "first", payload: { id: "first", status: "active" }, schemaVersion: 2, revision: 1 },
+    { id: "second", payload: { id: "second", status: "future" }, schemaVersion: 2, revision: 1 }
+  );
+  records.focus = { activeGoalId: "first", revision: 1 };
+  await context.configureV2Sync({ uid: "u1", deviceId: "d1", port });
+
+  await assert.rejects(
+    context.commitGoalCompletion(
+      { recordType: "goal", id: "second", payload: { id: "second", achievedAt: "2026-09-23" } },
+      1,
+      1
+    ),
+    { code: "FOCUS_MISMATCH" }
+  );
+  assert.equal(records.focus.activeGoalId, "first");
+  assert.equal(records.goals.find((goal) => goal.id === "second").revision, 1);
+});
+
+test("activation rejects unavailable and malformed focus adapters without locally changing a goal", async () => {
+  const { context, records, port } = runtime();
+  records.goals.push({ id: "planned", payload: { id: "planned" }, schemaVersion: 2, revision: 1 });
+  delete port.commitGoalActivation;
+  await context.configureV2Sync({ uid: "u1", deviceId: "d1", port });
+  await assert.rejects(
+    context.commitGoalActivation({ recordType: "goal", id: "planned", payload: { id: "planned", status: "active" } }, 1, 0),
+    /does not support atomic goal activation/
+  );
+  assert.equal(records.goals[0].revision, 1);
+  assert.equal(records.focus, null);
+});
+
+test("a malformed focus read is rejected before activation", async () => {
+  const { context, port } = runtime();
+  port.readFocus = async () => ({ activeGoalId: "", revision: 1 });
+  await context.configureV2Sync({ uid: "u1", deviceId: "d1", port });
+  await assert.rejects(context.readGoalFocus(), /Invalid cloud goal focus/);
 });
 
 test("Goal runtime authenticates into modern v2 and does not invoke legacy startup", () => {

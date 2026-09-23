@@ -87,3 +87,8 @@
 - This repository's large HTML file has nonstandard line endings. After a targeted patch, verify the ordinary diff (not only a whitespace-ignoring diff) and restore the existing byte convention before handoff so a small UI change stays reviewable.
 - Dropdown reviews must include focus after selection, both arrow-entry directions, and mobile anchoring; a menu that closes correctly can still leave keyboard focus hidden or depend on an implicit browser event global.
 - A UI rename is not complete at the button. Audit modal titles, validation, empty states, hints, and field descriptions while leaving only explicitly historical legacy wording unchanged.
+
+# 2026-09-22 - Goal reform foundation
+
+- Additive planning fields must prune their untouched null default before persistence. Otherwise every legacy goal appears changed, causing unnecessary cross-device revisions and avoidable merge races.
+- A P50 deadline calculator must use deterministic inputs and sampling so two clients show the same forecast. It may calculate pace and validate a user-selected date or duration, but it must never invent estimates, capacity, or a deadline.

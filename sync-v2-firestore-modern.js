@@ -3,12 +3,33 @@
   window.createModernV2Port = function (db, fire, uid) {
     function base(name) { return fire.collection(db, "users", uid, name); }
     function ref(name, id) { return fire.doc(db, "users", uid, name, id); }
+    function focusRef() { return ref("focus", "active-goal"); }
     function conflict() { var error = new Error("Cloud record changed on another device."); error.code = "REVISION_CONFLICT"; return error; }
+    function focusLocked(activeGoalId) {
+      var error = new Error("Complete the current active goal before activating another.");
+      error.code = "FOCUS_LOCKED";
+      error.activeGoalId = activeGoalId;
+      return error;
+    }
+    function focusMismatch(activeGoalId) {
+      var error = new Error("Only the current active goal can be completed.");
+      error.code = "FOCUS_MISMATCH";
+      error.activeGoalId = activeGoalId;
+      return error;
+    }
+    function hasCompletionOutcome(payload) {
+      return Boolean(payload) && (payload.achievedAt != null || payload.outcome != null);
+    }
     function eventRef() { return fire.doc(base("changeLog")); }
     return {
       list: async function (name) {
         var snap = await fire.getDocs(base(name));
         return snap.docs.map(function (entry) { return Object.assign({ id: entry.id }, entry.data()); });
+      },
+      readFocus: async function () {
+        var snap = await fire.getDoc(focusRef());
+        if (!snap.exists()) return { activeGoalId: null, revision: 0 };
+        return snap.data();
       },
       commit: function (name, mutation, expectedRevision, deviceId) {
         var liveRef = ref(name, mutation.id);
@@ -29,6 +50,81 @@
             recordId: mutation.id, beforeRevision: revision, afterRevision: revision + 1,
             timestamp: fire.serverTimestamp(), actorUid: uid
           });
+        }).then(function () { return result; });
+      },
+      commitGoalActivation: function (mutation, expectedGoalRevision, expectedFocusRevision, deviceId) {
+        if (!mutation || mutation.recordType !== "goal") throw new TypeError("Goal activation requires a goal mutation.");
+        var liveRef = ref("goals", mutation.id);
+        var activeFocusRef = focusRef();
+        var result;
+        return fire.runTransaction(db, async function (tx) {
+          var snapshots = await Promise.all([tx.get(liveRef), tx.get(activeFocusRef)]);
+          var goalSnap = snapshots[0];
+          var focusSnap = snapshots[1];
+          var currentGoal = goalSnap.exists() ? goalSnap.data() : null;
+          var currentFocus = focusSnap.exists() ? focusSnap.data() : null;
+          var goalRevision = currentGoal && Number.isSafeInteger(currentGoal.revision) ? currentGoal.revision : 0;
+          var focusRevision = currentFocus && Number.isSafeInteger(currentFocus.revision) ? currentFocus.revision : 0;
+          if (currentFocus && currentFocus.activeGoalId !== null && currentFocus.activeGoalId !== mutation.id) {
+            throw focusLocked(currentFocus.activeGoalId);
+          }
+          if (goalRevision !== expectedGoalRevision || focusRevision !== expectedFocusRevision) throw conflict();
+          var goal = {
+            id: mutation.id, payload: mutation.payload, schemaVersion: 2, revision: goalRevision + 1,
+            createdAt: currentGoal ? currentGoal.createdAt : fire.serverTimestamp(),
+            updatedAt: fire.serverTimestamp(), updatedBy: deviceId
+          };
+          var focus = {
+            activeGoalId: mutation.id, revision: focusRevision + 1,
+            createdAt: currentFocus ? currentFocus.createdAt : fire.serverTimestamp(),
+            updatedAt: fire.serverTimestamp(), updatedBy: deviceId
+          };
+          tx.set(liveRef, goal);
+          tx.set(activeFocusRef, focus);
+          tx.set(eventRef(), {
+            operation: currentGoal ? "update" : "create", recordType: "goal", recordId: mutation.id,
+            beforeRevision: goalRevision, afterRevision: goalRevision + 1,
+            timestamp: fire.serverTimestamp(), actorUid: uid
+          });
+          result = { goal: goal, focus: focus };
+        }).then(function () { return result; });
+      },
+      commitGoalCompletion: function (mutation, expectedGoalRevision, expectedFocusRevision, deviceId) {
+        if (!mutation || mutation.recordType !== "goal" || !hasCompletionOutcome(mutation.payload)) {
+          throw new TypeError("Goal completion requires achievedAt or outcome.");
+        }
+        var liveRef = ref("goals", mutation.id);
+        var activeFocusRef = focusRef();
+        var result;
+        return fire.runTransaction(db, async function (tx) {
+          var snapshots = await Promise.all([tx.get(liveRef), tx.get(activeFocusRef)]);
+          var goalSnap = snapshots[0];
+          var focusSnap = snapshots[1];
+          var currentGoal = goalSnap.exists() ? goalSnap.data() : null;
+          var currentFocus = focusSnap.exists() ? focusSnap.data() : null;
+          var goalRevision = currentGoal && Number.isSafeInteger(currentGoal.revision) ? currentGoal.revision : 0;
+          var focusRevision = currentFocus && Number.isSafeInteger(currentFocus.revision) ? currentFocus.revision : 0;
+          if (!currentFocus || currentFocus.activeGoalId !== mutation.id) {
+            throw focusMismatch(currentFocus ? currentFocus.activeGoalId : null);
+          }
+          if (goalRevision !== expectedGoalRevision || focusRevision !== expectedFocusRevision) throw conflict();
+          var goal = {
+            id: mutation.id, payload: mutation.payload, schemaVersion: 2, revision: goalRevision + 1,
+            createdAt: currentGoal ? currentGoal.createdAt : fire.serverTimestamp(),
+            updatedAt: fire.serverTimestamp(), updatedBy: deviceId
+          };
+          var focus = {
+            activeGoalId: null, revision: focusRevision + 1,
+            createdAt: currentFocus.createdAt, updatedAt: fire.serverTimestamp(), updatedBy: deviceId
+          };
+          tx.set(liveRef, goal);
+          tx.set(activeFocusRef, focus);
+          tx.set(eventRef(), {
+            operation: "update", recordType: "goal", recordId: mutation.id,
+            beforeRevision: goalRevision, afterRevision: goalRevision + 1,
+            timestamp: fire.serverTimestamp(), actorUid: uid
+          });
+          result = { goal: goal, focus: focus };
         }).then(function () { return result; });
       },
       trash: function (name, recordType, recordId, expectedRevision, deviceId) {

@@ -1163,3 +1163,110 @@ Run the complete Goal suite, syntax and diff checks, then review the diff for ac
 ## Verification and release
 
 Run the new tests first, then the complete suite, inline-script syntax check, maintenance check, data compatibility backtests, and an adversarial diff review. Commit and push only the planned files to `master`, wait for Vercel production, and verify the canonical URL, controls, themes, console/network state, signed-out behavior, authenticated persistence, two-client parity, and rollback availability without editing the user's saved goals.
+
+# Proposed: Goal App Reform - Clarity, Research, and Single Focus (2026-09-22)
+
+## Refine
+
+Reform the app around one user-owned, serious active goal at a time. A goal may be captured or researched freely, but it may activate only after the user has written a clear purpose, definition, research, capacity-aware deadline decision, execution structure, and next action. The app must treat a 50th-percentile deadline as the user's credible estimate of approximately a 50% chance of success: a deliberate forcing function, not an impossible date and never an AI-selected date.
+
+## Product contract
+
+1. Planning comes before activation. A draft or Future Goal remains editable and visible, but cannot become active until all required planning sections are complete.
+2. The user supplies the thinking. The app asks, organizes, and flags missing or contradictory information; it never invents purpose, research, estimates, or a deadline. Existing Copy for AI Review remains explicitly user-triggered. No AI API, account integration, or new dependency is added.
+3. A deadline decision supports two user-owned inputs: a target date or a desired duration. From the user's milestone three-point focused-hour estimates and committed weekly capacity, the app deterministically calculates P10/P50/P90 finish dates, the implied P50 likelihood for a date-first choice, and required pace. Activation requires the selected date to fall in the calculated P40-P60 target band; the user revises date, capacity, scope, or estimates when it does not. The app never invents those inputs or moves the deadline itself.
+4. The active goal page follows the reference tracker structure at one-goal scale: Objective -> Operations -> Missions. Progress is visible at every level; detail expands only when needed.
+5. Exactly one goal is canonical-active per signed-in account. Existing multiple active goals are never silently archived, deleted, or rewritten; the user resolves them in a dedicated focus-resolution view. Offline or sync-error activation is blocked rather than locally creating a competing active goal.
+6. Completion and missed-deadline reflection include an optional calibration result: actual outcome, whether the estimate felt too optimistic or too conservative, and what should change next time. Historical records remain valid without this data.
+
+## Data contract and interface signatures
+
+`goal-app.html` will preserve every unknown legacy field and add an optional `goalPlan` object only when the user saves planning data:
+
+```text
+goalPlan: {
+  version: 1,
+  purpose: string,
+  definition: string,
+  lifeGrowth: string,
+  successEvidence: string,
+  exclusions: string,
+  currentReality: string,
+  research: Array<{ id, question, source, insight, createdAt }>,
+  capacity: { hoursPerWeek: number|null, constraints: string },
+  deadlineDecision: {
+    inputMode: "date"|"duration",
+    date: "YYYY-MM-DD"|"",
+    requestedDurationDays: number|null,
+    rationale: string,
+    assumptions: string,
+    calculationSnapshot: { p10Date, p50Date, p90Date, selectedDatePercentile, requiredHoursPerWeek },
+    decidedAt: number
+  },
+  operations: Array<{ id, title, result, missions: Array<{ id, text, done, createdAt, completedAt }> }>,
+  nextAction: { text: string, scheduledFor: "YYYY-MM-DD"|"" }
+}
+```
+
+Required functions:
+
+1. `normalizeGoalPlan(value, idState) -> GoalPlan | null`
+   - Tolerantly normalizes valid nested fields, stable IDs, and malformed entries while retaining the raw goal's unrelated legacy fields.
+2. `goalPlanReadiness(g) -> { ready: boolean, missing: string[] }`
+   - Returns the activation requirements the user still needs to complete; it does not mutate a goal.
+3. `calculateDeadlineForecast(plan, today) -> DeadlineForecast` and `validateDeadlineDecision(value, forecast, today) -> string[]`
+   - Calculate reproducible P10/P50/P90 dates and pace from user-entered estimates/capacity; require a future chosen date in the forecast P40-P60 target band, explicit rationale/assumptions, and positive capacity. A duration-first choice resolves to its calculated P50 date.
+4. `findActiveGoal(goals) -> Goal | null` and `focusResolutionRequired(goals, focus) -> boolean`
+   - Distinguish the canonical focus from legacy records without silently changing user data.
+5. `activatePlannedGoal(id) -> Promise<boolean>`
+   - Blocks activation until readiness passes, routes signed-in activation through the atomic focus transaction, and renders a recoverable error on conflict/offline failure.
+6. `renderPlanningWorkspace(g)`, `renderDeadlineDecision(g)`, and `renderFocusResolution(goals, focus)`
+   - Render the staged planner, the confidence explanation, and user-chosen resolution controls with accessible labels.
+
+`sync-v2-api.js` and `sync-v2-firestore-modern.js` will expose:
+
+1. `readGoalFocus() -> Promise<{ activeGoalId: string|null, revision: number }>`
+2. `commitGoalActivation(goalMutation, expectedGoalRevision, expectedFocusRevision) -> Promise<{ goal, focus }>`
+   - Uses one Firestore transaction to update the selected goal and the canonical focus record together. A stale client receives a conflict and reloads rather than activating a second goal.
+
+## Files to change
+
+1. `goal-app.html`
+   - Add the non-destructive `goalPlan` normalizer, readiness validation, staged planning workspace, deadline decision screen, one-active-focus UI, reference-inspired Objective/Operations/Missions rendering, and calibration fields.
+   - Change Future Goal activation to call `activatePlannedGoal`; preserve current Future, Small, Daily, Ideas, Archive, Victory, reflection, Import/Export, and recovery behavior.
+   - Render existing active records and older multiple-active states unchanged until the user explicitly resolves focus. Do not mass-convert records.
+2. `sync-v2-api.js`
+   - Add focus read and atomic activation adapters, pending-state handling, revision-conflict reporting, and offline blocking for activation only.
+3. `sync-v2-firestore-modern.js`
+   - Add the transaction that reads/writes `users/{uid}/focus/active-goal` alongside the chosen live goal record and writes a matching change-log event.
+4. `firestore.rules`
+   - Permit an authenticated owner to read/write the narrowly validated focus document and restrict its fields to active goal ID, revision, and audit timestamps. Leave existing goal, Trash, legacy-envelope, and Hub rules unchanged.
+5. `tests/goal-reform.test.js` (new)
+   - Test planning normalization, readiness, malformed input, all required fields, deadline 40/50/60 boundaries, future/past dates, research preservation, Objective/Operations/Missions rendering, first-next-action visibility, legacy compatibility, and calibration data.
+6. `tests/sync-v2-runtime.test.js`
+   - Test atomic activation, stale focus revision conflict, offline rejection, retry after reload, and two-client attempts to activate different goals.
+7. `tests/firestore-rules.test.js`
+   - Test allowed owner focus reads/writes and rejected malformed, cross-user, or arbitrary-focus documents.
+8. `tests/goal-app.test.js` and `tests/production-readiness.test.js`
+   - Update only assertions made obsolete by the planned UI; add no-regression coverage for Import/Export, existing goal types, legacy active goals, status handling, and inline handler resolution.
+9. `LEARNINGS.md`
+   - Append findings about atomic user-level focus, self-reported deadline calibration, and preserving historical goal data during a workflow reform.
+
+## Test-first implementation phases
+
+1. Add failing pure-data tests for `goalPlan` normalization, deadline validation, and readiness; implement only those functions until green.
+2. Add failing rendering and activation-guard tests; implement the staged planner and existing-client one-active check until green.
+3. Add failing two-client focus transaction and rules tests; implement the canonical focus record and conflict recovery until green.
+4. Add failing completion/reflection calibration tests; implement the optional feedback fields without changing historical victories.
+5. Run the full regression suite, embedded-script syntax extraction, static inline-handler audit, legacy/empty/malformed/duplicate/reload/offline/concurrent-client/delete-restore backtests, and an adversarial diff review.
+
+## Explicit non-goals for this phase
+
+- No automatic deadline generation, AI deadline choice, AI API, or external research scraping.
+- No deletion, automatic archival, or automatic demotion of current goals.
+- No deployment, cloud-data migration, or user-data cleanup without a separate explicit release approval after all local and two-client checks pass.
+- Broad "useful feature" additions will be triaged after this foundation is stable; they must not dilute the clarity, planning, research, deadline-calibration, and one-focus outcome.
+
+## Approval gate
+
+No application, sync, rules, test, deployment, or cloud-data changes will be made until this plan is approved. Approval authorizes only the listed files and phased behavior.
