@@ -451,3 +451,70 @@ test("an overdue old goal without a plan is sent to plan it, then its new deadli
   assert.doesNotMatch(out, /OVERDUE/);
   assert.match(out, /set at \d+% at full focus/);
 });
+
+test("background re-renders never swap the DOM (and a click in progress) when nothing changed", () => {
+  const { host } = makeHost([]);
+  let writes = 0, value = "";
+  host.mountEl = { get innerHTML() { return value; }, set innerHTML(v) { writes += 1; value = v; } };
+  ui.mount(host);
+  ui.newGoal("Goal");
+  const before = writes;
+  for (let i = 0; i < 5; i++) ui.render();          // e.g. saves and 15 s cloud refreshes
+  assert.equal(writes, before, "identical markup is not rewritten");
+  ui.pick("growth.income", 3);                      // not shown on this stage: no rewrite
+  assert.equal(writes, before, "an invisible change doesn't redraw either");
+  ui.pick("whyLayers.0", "A visible answer");       // something the user can see changed
+  assert.ok(writes > before);
+  host.mountEl.innerHTML = "<div>Loading your saved cloud goals.</div>"; // host wrote into the box
+  const afterExternal = writes;
+  ui.render();
+  assert.equal(writes, afterExternal + 1, "re-renders after something else replaced the content");
+});
+
+test("a failing save never cancels Next or Save & exit, and the error is shown", () => {
+  const { host } = makeHost([]);
+  ui.mount(host);
+  ui.newGoal("Goal");
+  ["whyLayers.0", "whyLayers.1", "whyLayers.2", "costOfInaction"].forEach((p) => ui.set(p, "A real answer here"));
+  host.saveGoal = () => { throw new Error("cloud hiccup"); };
+  ui.stageTo(1);
+  assert.equal(ui._state().stage, 1, "Next still moves on");
+  assert.match(html(host), /Something went wrong \(cloud hiccup\)\. Your answers are kept/);
+  assert.equal(ui._state().drafts[ui._state().goalId].whyLayers[0], "A real answer here");
+  ui.go("pipeline");
+  assert.equal(ui._state().view, "pipeline", "Save & exit still exits");
+});
+
+test("an unexpected error inside a button becomes a message, not a dead button", () => {
+  const { host } = makeHost([]);
+  ui.mount(host);
+  host.createGoal = () => { throw new Error("storage full"); };
+  assert.equal(ui.newGoal("Goal"), false);
+  assert.match(html(host), /Something went wrong \(storage full\)/);
+});
+
+test("refresh saves unsaved answers before dropping drafts", () => {
+  const { host, store } = makeHost([]);
+  ui.mount(host);
+  const g = ui.newGoal("Goal");
+  ui.set("whyLayers.0", "Typed but not yet auto-saved");
+  ui.refresh();
+  assert.equal(store.goals.find((x) => x.id === g.id).goalPlan.whyLayers[0], "Typed but not yet auto-saved");
+});
+
+test("Ask an AI only says Copied when the copy worked, otherwise shows the text to copy by hand", async () => {
+  const { host, store } = makeHost([]);
+  ui.mount(host);
+  const g = defineGoal("Goal");
+  chooseCoinFlipDate(store);                       // lands on Review
+  host.copyText = () => Promise.reject(new Error("Document is not focused"));
+  ui.copyReview(g.id);
+  await new Promise((r) => setImmediate(r));
+  assert.match(html(host), /Your browser blocked copying/);
+  assert.match(html(host), /<textarea readonly[^>]*>Do not rewrite my goal\./);
+  host.copyText = () => Promise.resolve();
+  ui.copyReview(g.id);
+  await new Promise((r) => setImmediate(r));
+  assert.match(html(host), /Copied\. Paste it into an AI/);
+  assert.doesNotMatch(html(host), /textarea readonly/);
+});

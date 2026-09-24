@@ -160,7 +160,8 @@
     var plan = state.drafts[id];
     var goal = findGoal(id);
     if (!plan || !goal || !host) return;
-    host.saveGoal(Object.assign({}, goal, { goalPlan: clone(plan) }));
+    try { host.saveGoal(Object.assign({}, goal, { goalPlan: clone(plan) })); }
+    catch (error) { report(error); }
   }
   function scheduleSave(id) {
     if (saveTimers[id]) clearTimeout(saveTimers[id]);
@@ -407,6 +408,7 @@
     return "<h4 class=\"grf-h\">Clarity Gate</h4><div class=\"grf-live\" data-live=\"gate\">" + gateList(plan) + "</div>" +
       "<h4 class=\"grf-h\">What you're committing to</h4><div class=\"grf-preview\">" + objectiveCard(goal, plan, { preview: true }) + boardBody(goal, plan, { preview: true }) + "</div>" +
       "<div class=\"grf-actions\"><button type=\"button\" onclick=\"" + call("copyReview", goal.id) + "\">Ask an AI to question this plan (it must not rewrite it)</button></div>" +
+      (state.copyFallback ? "<label class=\"grf-field\"><span class=\"grf-label\">Copy this into an AI</span><textarea readonly rows=\"8\" onfocus=\"this.select()\">" + esc(state.copyFallback) + "</textarea></label>" : "") +
       "<div class=\"grf-actions\">" +
       "<button type=\"button\" onclick=\"" + call("go", "pipeline") + "\">Save &amp; back to goals</button>" + primary + "</div>";
   }
@@ -733,9 +735,28 @@
     return active ? renderBoard(active) : renderPipeline(list);
   }
 
+  // The host app re-renders on every save and on background cloud refreshes.
+  // Replacing identical markup would swap buttons out from under a click in
+  // progress, so the DOM is only rewritten when what the user sees changed
+  // (or when something else wrote into the container, e.g. a loading notice).
+  var lastHtml = null, lastDom = null;
   function render() {
     if (!host || !host.mountEl) return;
-    host.mountEl.innerHTML = renderView();
+    var el = host.mountEl;
+    var html = renderView();
+    if (html === lastHtml && el.innerHTML === lastDom) return;
+    el.innerHTML = html;
+    lastHtml = html;
+    lastDom = el.innerHTML;
+  }
+  // Errors must be visible, never a silently dead button. The user's answers
+  // stay in the draft, so nothing typed is lost.
+  function report(error) {
+    var msg = error && error.message ? error.message : String(error);
+    if (typeof console !== "undefined" && console.error) console.error("GoalReformUI:", error);
+    state.flash = "Something went wrong (" + msg + "). Your answers are kept; try again.";
+    lastHtml = null;
+    try { render(); } catch (e) { /* nothing more we can do */ }
   }
   // After a screen change, bring its top into view if the user had scrolled past it.
   function toTop() {
@@ -786,13 +807,19 @@
     mount: function (adapter) {
       host = adapter;
       state = freshState();
+      lastHtml = null; lastDom = null;
       injectStyles();
       render();
       return actions;
     },
     render: render,
     renderView: renderView,
-    refresh: function () { state.drafts = {}; render(); },
+    refresh: function () {
+      Object.keys(state.drafts).forEach(flush);   // never discard unsaved answers
+      state.drafts = {};
+      lastHtml = null;
+      render();
+    },
     go: function (view) {
       if (state.goalId) flush(state.goalId);
       state.view = view === "board" ? "home" : view;
@@ -1064,9 +1091,21 @@
         "\nCAMPAIGNS:\n" + plan.campaigns.map(function (c, i) {
           return (i + 1) + ". " + c.title + " | WIN: " + c.result + " | hours best/likely/worst " + [c.estimate.best, c.estimate.likely, c.estimate.worst].join("/");
         }).join("\n") + "\nCAPACITY: " + plan.capacity.hoursPerWeek + " h/week\nDEADLINE: " + (plan.deadlineDecision ? core.resolveDeadlineDate(plan.deadlineDecision, today()) : "");
-      if (host.copyText) host.copyText(text);
-      else if (typeof navigator !== "undefined" && navigator.clipboard) navigator.clipboard.writeText(text);
-      flash("Copied. Paste it into an AI, and answer its questions yourself.");
+      // Only claim success when the browser actually copied. Clipboard access is
+      // refused when the window isn't focused or permission is denied; then the
+      // text is shown for a manual copy instead of silently copying nothing.
+      var attempt;
+      try {
+        attempt = host.copyText ? host.copyText(text)
+          : (typeof navigator !== "undefined" && navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject(new Error("no clipboard")));
+      } catch (error) { attempt = Promise.reject(error); }
+      state.copyFallback = null;
+      Promise.resolve(attempt).then(function () {
+        flash("Copied. Paste it into an AI, and answer its questions yourself.");
+      }, function () {
+        state.copyFallback = text;
+        flash("Your browser blocked copying. Select the text below and copy it.");
+      });
       return text;
     },
     openDaily: function () { if (host && host.openDaily) host.openDaily(); },
@@ -1194,6 +1233,19 @@
     ".grf-confirm{border:1px solid var(--gold);border-radius:4px;padding:18px;background:var(--canvas)}",
     "@media (max-width:640px){.grf-est-row{grid-template-columns:1fr}.grf-campaign-body{padding-left:14px}.grf-cdate{display:none}.grf-growth-row{flex-wrap:wrap}.grf-strip{padding-left:18%;padding-right:18%}}"
   ].join("\n");
+
+  Object.keys(actions).forEach(function (name) {
+    var fn = actions[name];
+    if (typeof fn !== "function" || name === "renderView" || name === "_state") return;
+    actions[name] = function () {
+      try {
+        var result = fn.apply(actions, arguments);
+        return result && typeof result.then === "function"
+          ? result.then(null, function (error) { report(error); return false; })
+          : result;
+      } catch (error) { report(error); return false; }
+    };
+  });
 
   actions.STAGES = STAGES;
   actions.renderWorkshop = function (goal, stage) { return renderWorkshop(goal, stage || 0); };

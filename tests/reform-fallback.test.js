@@ -143,3 +143,33 @@ test("Black and orange is the default theme", () => {
   const html = fs.readFileSync(path.join(__dirname, "..", "goal-app.html"), "utf8");
   assert.match(html, /<html lang="en" data-theme="black-orange">/, "no blue flash before the script runs");
 });
+
+test("cloud saves run one at a time: no overlapping syncs, and the last change still uploads", async () => {
+  const { context } = createHarness();
+  context.goals = [context.normalize({ id: "g1", title: "Goal", goalType: "future", status: "future" })];
+  signedIn(context);
+  let running = 0, maxRunning = 0, runs = 0;
+  const seenTitles = [];
+  context.syncV2Records = context.window.syncV2Records = async (name, records) => {
+    running += 1; runs += 1; maxRunning = Math.max(maxRunning, running);
+    seenTitles.push(records[0].title);
+    await new Promise((r) => setImmediate(r));
+    running -= 1;
+    return [];
+  };
+  const first = context.saveCloudGoals();
+  context.goals[0].title = "Goal v2";
+  context.saveCloudGoals();
+  context.goals[0].title = "Goal v3";
+  context.saveCloudGoals();
+  await first;
+  assert.equal(maxRunning, 1, "never two syncs at once (that raced into REVISION_CONFLICT)");
+  assert.equal(runs, 2, "the queued saves collapse into one follow-up run");
+  assert.equal(seenTitles[seenTitles.length - 1], "Goal v3", "the latest state is what uploads last");
+});
+
+test("the page keeps room below the content so the fixed Recovery button can't cover Next or Complete", () => {
+  const html = fs.readFileSync(path.join(__dirname, "..", "goal-app.html"), "utf8");
+  assert.match(html, /\.wrap\{max-width:940px;margin:0 auto;padding:28px 20px 120px\}/, "wide layout");
+  assert.match(html, /\.wrap\{padding:20px 14px 120px\}/, "narrow/phone layout");
+});

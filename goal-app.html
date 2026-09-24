@@ -19,7 +19,7 @@
   :root[data-theme="black-orange"] #v2-recovery-button{background:#141416 !important;color:#F59E0B !important;border:1px solid #3A2F18 !important}
   *{box-sizing:border-box}
   body{margin:0;font-family:Consolas,'Cascadia Mono','Segoe UI',monospace;background-color:var(--soft);background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px),radial-gradient(circle at 50% 0,var(--blueBg),var(--soft) 58%);background-size:32px 32px,32px 32px,100% 100%;background-attachment:fixed;color:var(--text);font-size:15px;line-height:1.5}
-  .wrap{max-width:940px;margin:0 auto;padding:28px 20px 60px}
+  .wrap{max-width:940px;margin:0 auto;padding:28px 20px 120px} /* bottom room: the fixed Recovery button must never cover Next / Complete */
   header{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:18px;border-bottom:1px solid var(--border);padding-bottom:16px}
   h1{font-size:26px;margin:0;text-transform:uppercase;letter-spacing:.14em;color:var(--accent)}
   .sub{color:var(--text2);margin:2px 0 0;font-size:14px}
@@ -258,7 +258,7 @@
   .modal-btns{display:flex;gap:8px;justify-content:flex-end;margin-top:18px}
   .danger{color:var(--red);border-color:#F0BBB5;margin-right:auto}
   .hide{display:none}
-  @media(max-width:640px){.wrap{padding:20px 14px 48px}.goal-title{padding-right:0;margin-top:36px}.card-btns{left:14px;right:14px;justify-content:flex-start}.hdr-btns{margin-left:0;width:100%}.view-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.view-tabs>button,.view-tabs>.menu,.view-tabs>.menu>button{width:100%}.menu-panel{position:absolute;left:0;right:auto;top:calc(100% + 6px);min-width:190px;max-width:calc(100vw - 28px)}.hdr-btns .menu-panel{left:auto;right:0}.settings-grid{grid-template-columns:1fr}}
+  @media(max-width:640px){.wrap{padding:20px 14px 120px}.goal-title{padding-right:0;margin-top:36px}.card-btns{left:14px;right:14px;justify-content:flex-start}.hdr-btns{margin-left:0;width:100%}.view-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.view-tabs>button,.view-tabs>.menu,.view-tabs>.menu>button{width:100%}.menu-panel{position:absolute;left:0;right:auto;top:calc(100% + 6px);min-width:190px;max-width:calc(100vw - 28px)}.hdr-btns .menu-panel{left:auto;right:0}.settings-grid{grid-template-columns:1fr}}
 </style>
 <script src="./sync-safety-v2.js"></script>
 <script src="./sync-v2-api.js"></script>
@@ -2314,7 +2314,20 @@ async function loadCloudGoals(){
   if (goalPayloadEmpty(data.value)) return null;
   try { return removeKnownGoalContamination(normalizeGoals(JSON.parse(data.value))); } catch(e){ return null; }
 }
+/* One cloud sync at a time. Two overlapping syncs read the same revision and
+   the second failed with REVISION_CONFLICT (e.g. creating a goal, then saving
+   its first answers a moment later). Later saves queue and run once. */
+var cloudSyncRunning = false, cloudSyncQueued = false;
 async function saveCloudGoals(){
+  if (cloudSyncRunning){ cloudSyncQueued = true; return; }
+  cloudSyncRunning = true;
+  try {
+    do { cloudSyncQueued = false; await saveCloudGoalsOnce(); } while (cloudSyncQueued);
+  } finally {
+    cloudSyncRunning = false;
+  }
+}
+async function saveCloudGoalsOnce(){
   if (!cloudSave.ready || !cloudSave.user || !cloudSave.initialReadDone) return;
   /* The completion transaction writes this goal and the focus together. */
   if (reformCompletionInFlight) return;
@@ -2379,7 +2392,7 @@ async function startGoalV2Sync(){
      lifecycle be evaluated and persisted. */
   installAuthoritativeState("cloud-v2");
   var poll = setInterval(async function(){
-    if (!cloudSave.user || applyingCloud) return;
+    if (!cloudSave.user || applyingCloud || cloudSyncRunning || cloudSyncQueued || reformCompletionInFlight) return;
     try {
       var latest = rememberGoalCloudRecords(await loadV2Records("goals"));
       var next = removeKnownGoalContamination(normalizeGoals(latest.map(function(record){ return record.payload; })));
@@ -4393,7 +4406,7 @@ function reformHost(){
     logTime: reformLogTime,
     calibration: reformCalibration,
     today: activationToday,
-    copyText: function(text){ try { navigator.clipboard.writeText(text); } catch(e){} },
+    copyText: function(text){ return navigator.clipboard.writeText(text); },   /* a rejection shows the manual-copy box */
     openDaily: function(){ setView("daily"); }
   };
 }
@@ -5272,6 +5285,9 @@ loadNotifications();
    thrown away when the cloud read replaces it. It now runs from
    installAuthoritativeState(). BL-1: no unconditional backup at startup. */
 render();
+window.addEventListener("error", function(event){
+  try { setSaveStatus("App error: " + ((event && event.message) || "unknown") + " (your data is saved)"); } catch(e){}
+});
 if (!window.__SKIP_CLOUD_SAVE) initCloudSave();
 else installAuthoritativeState("local-only");
 window.addEventListener("storage", function(ev){
